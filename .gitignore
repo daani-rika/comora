@@ -1,0 +1,17 @@
+# Public frontend allowlist. Never commit server secrets, photos or local backups.
+*
+!/.gitignore
+!/.nojekyll
+!/LICENSE
+!/README.md
+!/index.html
+!/style.css
+!/app.js
+!/manifest.json
+!/sw.js
+!/icons/
+!/icons/**
+!/vendor/
+!/vendor/**
+!/fonts/
+!/fonts/**

@@ -1,0 +1,781 @@
+function productEmoji(p){return p.e||'📦'}
+
+// ===== демо-дані (у реальному застосунку — з бази) =====
+const day=86400000, today=()=>new Date(new Date().toDateString());
+const off=n=>{const d=today();d.setDate(d.getDate()+n);return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-')};
+let P=[
+ {id:1,n:'Гречка',e:'🌾',u:'кг',seg:1,normP:2,use:.7,life:540,codes:{1:'4820000100011',.8:'4820000100028',.9:'4820000100035'}},
+ {id:2,n:'Рис',e:'🍚',u:'кг',seg:1,normP:3,use:.8,life:540,codes:{1:'4820000200018'}},
+ {id:3,n:'Чечевиця',e:'🫘',u:'кг',seg:.25,normP:3,use:.5,life:365,codes:{.4:'4820000300015'}},
+ {id:4,n:'Вівсянка',e:'🥣',u:'кг',seg:1,normP:3,use:1,life:365,codes:{.5:'4820000400012'}},
+ {id:5,n:'Макарони',e:'🍝',u:'кг',seg:1,normP:4,use:1,life:730,codes:{.5:'4820000500019'}},
+ {id:6,n:'Олія',e:'🫒',u:'л',seg:1,normP:2,use:.7,life:365,codes:{1:'4820000600016'}}];
+let B=[
+ {p:1,s:.8,x:off(12),q:1},{p:1,s:.7,x:off(95),q:1},{p:1,s:.9,x:off(210),q:1},{p:1,s:1,x:off(240),q:4},
+ {p:2,s:1,x:off(80),q:3},{p:3,s:.4,x:off(45),q:1},{p:4,s:.5,x:off(-5),q:2},
+ {p:5,s:.5,x:off(300),q:4},{p:6,s:1,x:off(24),q:1}];
+const DEMO={1:{g:700,people:1,months:3},2:{g:800,people:2,months:2},3:{g:500,people:1,months:3,pack:400},4:{g:1000,people:1,months:2},5:{g:1000,people:1,months:2,pack:500},6:{g:700,people:1,months:3}};
+function recalc(p){p.use=p.g/1000;const days=Math.min(p.months*30,p.life);p.capped=p.months*30>p.life;p.target=p.use*p.people*days/30;p.seg=p.pack/1000;p.calc=Math.max(1,Math.ceil(p.target/p.seg-1e-9));p.normP=p.ov||p.calc}
+function mk(p){const d=DEMO[p.id]||{};p.g=p.g||d.g||Math.round((p.use||.5)*1000);p.people=p.people||d.people||1;p.months=p.months||d.months||3;p.pack=p.pack||d.pack||Math.round((p.seg||1)*1000);recalc(p)}
+P.forEach(mk);
+let filter='all',open=new Set(),snap=null;
+const $=s=>document.querySelector(s);
+const nf=n=>String(+n.toFixed(2)).replace('.',',');
+const size=(s,u)=>u==='шт.'?nf(s)+' шт.':u==='кг'?(s<1?Math.round(s*1000)+' г':nf(s)+' кг'):(s<1?Math.round(s*1000)+' мл':nf(s)+' л');
+const amt=(v,u)=>nf(v)+' '+u;
+const daysTo=x=>Math.round((new Date(x)-today())/day);
+const lvl=d=>d<=30?'red':d<=60?'amb':'ok';
+const dtxt=d=>d<0?`прострочено ${-d} дн.`:d===0?'сьогодні остання доба':`ще ${d} дн.`;
+const ukd=x=>new Date(x).toLocaleDateString('uk-UA',{day:'numeric',month:'short',year:'numeric'});
+const pk=n=>n%10===1&&n%100!==11?'пачка':[2,3,4].includes(n%10)&&![12,13,14].includes(n%100)?'пачки':'пачок';
+
+function info(p){
+  const bs=B.filter(b=>b.p===p.id&&b.q>0).sort((a,b)=>(daysTo(a.x)<0?0:1)-(daysTo(b.x)<0?0:1)||(a.k||'').localeCompare(b.k||'')||a.x.localeCompare(b.x));
+  const total=bs.reduce((a,b)=>a+b.s*b.q,0), packs=bs.reduce((a,b)=>a+b.q,0);
+  const n=packs;
+  return {bs,total,packs,n,low:n<p.normP/2,excess:n>p.normP};
+}
+function render(){
+  persistState();
+  const q=$('#q').value.trim().toLowerCase();
+  let items=P.map(p=>({p,i:info(p)}));
+  const cnt={low:items.filter(x=>x.i.low).length,excess:items.filter(x=>x.i.excess).length};
+  $('#chips').innerHTML=[['all','Усі'],['low','Закінчується'],['excess','Зайве']]
+    .map(([k,t])=>`<button data-f="${k}" aria-pressed="${filter===k}">${t}${k!=='all'?`<b>${cnt[k]}</b>`:''}</button>`).join('');
+  items=items.filter(x=>(!q||x.p.n.toLowerCase().includes(q))&&(filter==='all'||(filter==='low'&&x.i.low)||(filter==='excess'&&x.i.excess)));
+  items.sort((a,b)=>a.p.n.localeCompare(b.p.n));
+  $('#list').innerHTML=items.map(({p,i})=>{
+    const n=i.n,slots=Math.max(p.normP,n);
+    const pills=Array.from({length:slots},(_,k)=>`<span class="pl ${k>=n?'e':k>=p.normP?'x':''}"></span>`).join('');
+    const months=i.total/(p.use*p.people);
+    const sub=i.total&&p.use===0?"Витрату не задано":i.total?`~${String(+months.toFixed(1)).replace('.',',')} міс. / ${p.people} ос.`:'немає в коморі';
+    return `<article class="card"><div class="cl"><div class="ch"><span class="ico">${productEmoji(p)}</span><div><div class="nm">${typeof CLOUD!=='undefined'&&CLOUD?`<button class="name-edit" data-edit-product="${p.id}" aria-label="Редагувати продукт ${esc(p.n)}">${esc(p.n)}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m4 16 12-12 4 4L8 20H4Zm9-9 4 4"/></svg></button>`:esc(p.n)}</div><div class="sub">${sub}</div></div></div><div class="pills">${pills}</div></div>
+    <div class="qb"><button class="qa" data-op="add|${p.id}" aria-label="Додати"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button><button class="qt" data-op="take|${p.id}" aria-label="Взяти"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12h14"/></svg></button></div></article>`}).join('')||'<div class="empty">Нічого не знайдено</div>';
+}
+
+// ===== дії =====
+function toast(msg,undo){
+  const t=$('#toast');t.hidden=false;t.innerHTML=`<span>${msg}</span>${undo?'<button id="undo">Скасувати</button>':''}`;
+  if(undo)$('#undo').onclick=()=>{B=JSON.parse(undo);t.hidden=true;render()};
+  clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,6000);
+}
+function take(pid,s,n,x){ // x задано — конкретна партія, інакше найстаріші (FEFO)
+  const before=JSON.stringify(B);
+  let left=n;
+  B.filter(b=>b.p===pid&&b.s===s&&b.q>0&&(!x||b.x===x)).sort((a,b)=>a.x.localeCompare(b.x))
+   .forEach(b=>{const t=Math.min(b.q,left);b.q-=t;left-=t});
+  B=B.filter(b=>b.q>0);
+  const p=P.find(p=>p.id===pid);
+  toast(`Взято ${n} × ${size(s,p.u)} · ${esc(p.n)}`,before);render();
+}
+function add(pid,s,n,x,k){
+  const before=JSON.stringify(B),p=P.find(p=>p.id===pid);
+  const g=B.find(b=>b.p===pid&&b.s===s&&b.x===x);
+  g?g.q+=n:B.push({p:pid,s,x,q:n,k});
+  toast(`Додано ${n} × ${size(s,p.u)} · ${esc(p.n)}`,before);render();
+}
+const close=()=>{$('#ov').hidden=true;S.back=false;stopCam()};
+const show=h=>{$('#sheet').innerHTML=h;$('#sheet').className='sheet';$('#ov').hidden=false};
+
+// ===== аркуш продукту: взяти / додати =====
+let S={};
+const plus=(k,n)=>new Date(new Date(k).getTime()+n*day).toISOString().slice(0,10);
+function opSheet(pid,mode,code){
+  const p=P.find(p=>p.id===pid), i=info(p);
+  let s=1;if(mode==='take'&&i.bs.length&&!i.bs.some(b=>b.s===1))s=i.bs[0].s;
+  if(code){const f=Object.entries(p.codes).find(([,c])=>c===code);if(f)s=+f[0];else if(p.barcodeSizes?.[code])s=p.barcodeSizes[code]}
+  S={pid,mode,n:1,s,k:off(0),x:plus(off(0),p.life),xm:false};
+  if(mode==='add'){S.stage=code?'card':'start';if(code)S.f={s,n:1,x:'',code,name:pname(p,s)}}
+  drawOp();
+  if(typeof CLOUD!=='undefined'&&CLOUD&&mode==='take')cloudLoadPhotos();
+}
+const IC={
+ scan:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8V5h3M17 4h3v3M20 16v3h-3M7 20H4v-3M7 9v6M11 9v6M15 9v6"/></svg>',
+ cam:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-2h6l2 2h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+ kb:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4L7 20M17 4l-2 16M4 9h16M3 15h16"/></svg>',
+ up:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 15l7-7 7 7"/></svg>',
+ dn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 9l7 7 7-7"/></svg>',
+ list:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 7h14M5 12h14M5 17h14"/></svg>'};
+function drawOp(){
+  const p=P.find(p=>p.id===S.pid),i=info(p),add=S.mode==='add';
+  return add?drawAdd(p,i):drawTake(p,i);
+  p.ph=p.ph||{};
+  const stock=[...new Set(i.bs.map(b=>b.s))];
+  const sizes=(add?[...new Set([1,...Object.keys(p.codes).map(Number),...stock,S.s])]:stock).sort((a,b)=>b-a);
+  const avail=i.bs.filter(b=>b.s===S.s).reduce((a,b)=>a+b.q,0);
+  const after=i.packs+(add?S.n:-Math.min(S.n,avail));
+  const thumb=s=>p.ph[s]?`<img src="${p.ph[s]}" style="width:100%;height:100%;object-fit:cover;border-radius:5px">`:size(s,p.u);
+  const rows=i.bs.map(b=>{const d=daysTo(b.x);return `<div class="b"><div class="pk">${thumb(b.s)}</div><div class="t"><b>${b.q>1?b.q+' × ':''}${size(b.s,p.u)}</b><span class="d ${d<=30?'red':'sub'}">${ukd(b.x)} · ${dtxt(d)}</span><div class="sub">${p.codes[b.s]?'Код '+p.codes[b.s]:'Без штрих-коду'}</div></div>${add?'':`<button data-eat="${p.id}|${b.s}|${b.x}">Взяти</button>`}</div>`}).join('')||'<p class="sub">Порожньо</p>';
+  show(`<div class="top3"><div><h2>${esc(p.n)}</h2><div class="cnt">${i.packs} → <b>${after}</b> ${pk(after)}</div></div>
+  <div class="ib">${add?`<button data-scan aria-label="Сканувати штрих-код">${IC.scan}</button><label class="ibtn" aria-label="Фото упаковки">${p.ph[S.s]?`<img src="${p.ph[S.s]}" style="width:26px;height:26px;object-fit:cover;border-radius:4px">`:IC.cam}<input type="file" id="ph" accept="image/*" capture="environment" hidden></label>`:''}<button data-dt aria-pressed="${!!S.dt}" aria-label="Пачки в коморі">${IC.list}</button><button data-close aria-label="Закрити">✕</button></div></div>
+  <div class="seg"><button data-mode="take" aria-pressed="${!add}">Взяти</button><button data-mode="add" aria-pressed="${add}">Додати</button></div>
+  ${!add&&!stock.length?'<p class="sub">У коморі нічого немає.</p>':`<div class="line"><div class="sz">${sizes.map(s=>`<button data-sz="${s}" aria-pressed="${s===S.s}">${size(s,p.u)}</button>`).join('')}${add?'<button data-sz="new">інший</button>':''}</div>
+  <div class="step"><button data-n="-1" aria-label="Менше" ${S.n<=1?'disabled':''}>${IC.dn}</button><output>${S.n}</output><button data-n="1" aria-label="Більше" ${!add&&S.n>=avail?'disabled':''}>${IC.up}</button></div></div>`}
+  ${add?`<label class="fld" style="display:block;margin-top:10px">Придатне до<input type="date" id="x" value="${S.x}"></label>`:''}
+  ${S.dt?`<div class="panel">${add?`<div class="two"><label class="fld">Куплено<input type="date" id="k" value="${S.k}" max="${off(0)}"></label><label class="fld">Штрих-код<input id="cd" inputmode="numeric" placeholder="вручну" value="${S.cd??p.codes[S.s]??''}"></label></div><button data-code style="width:100%;min-height:40px;margin-bottom:6px">Зберегти штрих-код</button>`:''}${rows}</div>`:''}
+  <button class="pri" style="width:100%;min-height:50px;margin-top:10px" data-go ${!add&&!avail?'disabled':''}>Підтвердити</button>`);
+  $('#sheet').className='sheet '+(add?'add':'take');
+}
+
+// ===== сторінка «Взяти»: картка на кожну пачку =====
+const PEOPLE=1;
+const GR={1:['#a0713f','#4e3320'],2:['#8596a0','#3c4a52'],3:['#c4652f','#6b2f14'],4:['#ad9473','#5a4a35'],5:['#cc9c30','#6e5214'],6:['#85922f','#3d4516']};
+const NM={'1|1':'Крупа гречана Ситий двір ядриця'};
+const pname=(p,s)=>NM[p.id+'|'+s]||p.n;
+const my=x=>new Date(x).toLocaleDateString('uk-UA',{month:'short',year:'numeric'}).replace(/\s?р\.$/,'');
+const L=['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'],
+G=['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'],
+R=['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'],
+PAR=['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
+function ean(c){if(!/^\d{13}$/.test(c))return null;const d=[...c].map(Number);let b='101';
+  for(let k=0;k<6;k++)b+=(PAR[d[0]][k]==='L'?L:G)[d[k+1]];b+='01010';for(let k=7;k<13;k++)b+=R[d[k]];return b+'101'}
+const BAR='<svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2"><path d="M4 5v14M8 5v14M11 5v14M15 5v14M18 5v14M21 5v14"/></svg>';
+function drawTake(p,i){
+  p.ph=p.ph||{};
+  if(!S.tp)S.tp=i.bs.flatMap(b=>Array.from({length:Math.ceil(b.q)},()=>({id:b.id,photo_file_id:b.photo_file_id,s:b.s,x:b.x,k:b.k,photo:b.photo,code:b.code||p.codes[b.s],name:b.name,done:0})));
+  const cards=S.tp.map((t,k)=>{
+    const ph=t.photo||p.ph[t.s],g=GR[p.id]||['#6b7f77','#33403b'],old=daysTo(t.x)<=30;
+    return `<div class="pc ${t.done?'done':''}" data-tk="${k}" style="${ph?`background-image:url('${ph}')`:`background:linear-gradient(160deg,${g[0]},${g[1]})`}">
+    <button class="bc" data-bc="${k}" aria-label="Штрих-код">${BAR}</button>
+    <div class="pt"><b class="pn">${esc(t.name||pname(p,t.s))}</b><div class="pm"><b>${size(t.s,p.u)}</b><span class="${old?'old':''}">${my(t.x)}</span></div></div>
+    ${t.done?'<div class="dn">Взято</div>':''}</div>`}).join('');
+  show(`<div class="top3"><h2 class="th"><span style="color:var(--red)">Взяти</span> • ${esc(p.n)} • <b>${i.packs}</b> <span class="sub">${pk(i.packs)}</span></h2>
+  <div class="ib"><button data-close aria-label="Закрити">✕</button></div></div>
+  ${S.tp.length?`<div class="pgrid">${cards}</div>`:'<p class="sub">У коморі нічого немає.</p>'}`);
+  $('#sheet').className='sheet take';
+}
+function bcSheet(k){
+  const p=P.find(p=>p.id===S.pid),t=S.tp[k],c=t.code||p.codes[t.s],e=c&&ean(c);
+  show(`<div class="top3"><h2>Штрих-код</h2><div class="ib"><button data-back aria-label="Назад">✕</button></div></div>
+  <p class="sub">${esc(t.name||pname(p,t.s))} · ${size(t.s,p.u)}</p>
+  ${e?`<div style="background:#fff;padding:12px;border-radius:6px"><svg viewBox="0 0 95 50" preserveAspectRatio="none" style="width:100%;height:90px;display:block"><path fill="#000" d="${[...e].map((v,n)=>v==='1'?`M${n} 0h1v50h-1z`:'').join('')}"/></svg><div class="bcn">${c}</div></div>`:`${c?`<div class="bcn">${esc(c)}</div>`:'<p class="sub">Штрих-коду ще немає.</p>'}`}
+  <button class="pri" style="width:100%;min-height:50px;margin-top:12px" data-bcscan="${k}">Сканувати</button>`);
+}
+
+// ===== сторінка «Додати»: лінійна картка на фасовку =====
+IC.bar='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5v14M8 5v14M11 5v14M15 5v14M18 5v14M21 5v14"/></svg>';
+const MN=['січень','лютий','березень','квітень','травень','червень','липень','серпень','вересень','жовтень','листопад','грудень'];
+IC.cal='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="6" width="16" height="14" rx="2"/><path d="M4 11h16M9 4v4M15 4v4"/></svg>';
+const esc=t=>String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+function drawAdd(p,i){
+  p.ph=p.ph||{};
+  const f=S.f,card=S.stage==='card'&&f,tot=i.packs+(card?f.n:0);
+  const head=`<div class="top3"><h2 class="th"><span style="color:var(--green)">Додати</span> • ${esc(p.n)} • <b>${card?`${i.packs} → ${tot}`:i.packs}</b> <span class="sub">${pk(tot)}</span></h2><div class="ib"><button data-close aria-label="Закрити">✕</button></div></div>`;
+  if(!card){
+    show(head+`<div class="start"><button class="pri" data-scan>${IC.bar}Сканувати</button><button class="wide" data-manual>+ Додати вручну</button></div>`);
+    $('#sheet').className='sheet add';return;
+  }
+  const ph=f.photo||p.ph[f.s],sizes=[...new Set([1,...Object.keys(p.codes).map(Number),...i.bs.map(b=>b.s),f.s])].sort((a,b)=>b-a);
+  const d=f.x?new Date(f.x):null;
+  const dl=d?`${d.toLocaleDateString('uk-UA',{month:'short'}).replace('.','')}<br>${d.getFullYear()}`:IC.cal;
+  const base=d||new Date(plus(off(0),p.life)),y0=today().getFullYear();
+  const chips=S.sz?`<div class="sz" style="margin:10px 0 0">${sizes.map(s=>`<button data-fs="${s}" aria-pressed="${s===f.s}">${size(s,p.u)}</button>`).join('')}${S.addSz?'':'<button data-nsz>інша</button>'}</div>${S.addSz?`<div class="tools" style="margin-top:8px"><input id="nsz" inputmode="decimal" placeholder="Розмір, ${p.u}"><button data-nszok>OK</button></div>`:''}`:'';
+  const panel=S.dp?`<div class="dpanel"><select id="mm">${MN.map((m,k)=>`<option value="${k}" ${k===base.getMonth()?'selected':''}>${m}</option>`).join('')}</select><select id="yy">${Array.from({length:8},(_,k)=>y0+k).map(y=>`<option ${y===base.getFullYear()?'selected':''}>${y}</option>`).join('')}</select><button data-dpok>Готово</button></div>`:'';
+  show(head+`<div class="ac3"><div class="ac3l"><textarea class="nmt" rows="2" data-fn placeholder="Назва">${esc(f.name)}</textarea>
+  <button class="wbtn" data-wt>${size(f.s,p.u)} <small>▾</small></button>
+  <div class="seg2 stp"><button data-ra="x|-1" aria-label="Менше" ${f.n<2?'disabled':''}>${IC.dn}</button><output>${f.n}</output><button data-ra="x|1" aria-label="Більше">${IC.up}</button></div></div>
+  <div class="ac3r"><button data-dp class="${f.x?'has':''}" aria-label="Придатне до">${dl}</button><label class="${ph?'has':''}" aria-label="Сфотографувати пачку">${IC.cam}<input type="file" id="ph0" accept="image/*" capture="environment" hidden></label></div></div>
+  ${chips}${panel}${ph?`<img class="bigph" src="${ph}" alt="">`:''}
+  <button class="pri" style="width:100%;min-height:50px;margin-top:12px" data-go>Підтвердити</button>`);
+  $('#sheet').className='sheet add';
+}
+function goAdd(){
+  const p=P.find(p=>p.id===S.pid),f=S.f,before=JSON.stringify(B),x=f.x||plus(off(0),p.life);
+  if(f.code){p.codes[f.s]=f.code;p.barcodeSizes={...p.barcodeSizes,[f.code]:f.s}}else if(!(f.s in p.codes))p.codes[f.s]='';
+  const photo=f.photo||p.ph[f.s]||'',code=f.code||p.codes[f.s]||'';
+  const g=B.find(b=>b.p===S.pid&&b.s===f.s&&b.x===x&&(b.photo||'')===photo&&(b.code||'')===code);g?g.q+=f.n:B.push({p:S.pid,s:f.s,x,q:f.n,k:off(0),photo,code,name:f.name});
+  toast(`Додано ${f.n} ${pk(f.n)} · ${esc(p.n)}`,before);render();
+}
+
+// ===== сканер =====
+let scanSession=0, scanner=null, cameraWork=Promise.resolve(), torchOn=false;
+function stopCam(){
+  scanSession++;
+  const old=scanner;scanner=null;
+  cameraWork=cameraWork.catch(()=>{}).then(async()=>{
+    if(old){try{if(old.isScanning)await old.stop();old.clear()}catch(_){}}
+  });
+  return cameraWork;
+}
+function scanSheet(mode){
+  stopCam();
+  if(!S.back)S={mode:mode||'add'};
+  show(`<div class="row"><h2>Сканувати штрих-код</h2><button data-close style="border:0" aria-label="Закрити">✕</button></div>
+  <div class="cam" id="cam"></div><p id="scanStatus" class="scan-status" role="status">Запит доступу до камери…</p>
+  <div class="scan-tools"><button id="torch" hidden aria-pressed="false">Ліхтарик</button><button id="retryScan" hidden>Увімкнути камеру</button><label>Фото штрих-коду<input id="barcodePhoto" type="file" accept="image/*" capture="environment" hidden></label>${S.back?'<button id="scanBack">Назад</button>':''}</div>
+  <input id="code" inputmode="numeric" autocomplete="off" placeholder="або введіть код вручну" aria-label="Штрих-код">
+  <button class="pri" style="width:100%;margin-top:8px" data-lookup>Знайти</button>`);
+  $('#retryScan').onclick=startScanner;
+  if($('#scanBack'))$('#scanBack').onclick=async()=>{await stopCam();S.back=false;drawOp()};
+  $('#torch').onclick=async()=>{
+    const button=$('#torch'),current=scanner;
+    try{await current.applyVideoConstraints({advanced:[{torch:!torchOn}]});torchOn=!torchOn;button.setAttribute('aria-pressed',String(torchOn))}
+    catch(_){toast('Ліхтарик недоступний на цій камері')}
+  };
+  $('#barcodePhoto').onchange=e=>scanPhoto(e.target.files?.[0]);
+  startScanner();
+}
+function cameraMessage(error){
+  const text=String(error?.name||error||'');
+  if(/NotAllowed|Permission|denied/i.test(text))return 'Дозвольте доступ до камери в налаштуваннях браузера або введіть код вручну.';
+  if(/NotFound|DevicesNotFound/i.test(text))return 'Камеру не знайдено. Виберіть фото штрих-коду або введіть код вручну.';
+  if(/NotReadable|TrackStart/i.test(text))return 'Камера зайнята іншим застосунком. Закрийте його та спробуйте ще раз.';
+  return 'Не вдалося увімкнути камеру. Спробуйте ще раз, виберіть фото або введіть код вручну.';
+}
+async function startScanner(){
+  await stopCam();
+  const token=scanSession,host=$('#cam');
+  if(!host||$('#ov').hidden)return;
+  const status=$('#scanStatus');$('#retryScan').hidden=true;$('#torch').hidden=true;
+  if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){status.textContent='Для камери відкрийте сайт через HTTPS (або localhost на комп’ютері). Фото та ручне введення доступні нижче.';return}
+  if(!window.Html5Qrcode){status.textContent='Бібліотека сканера не завантажилася. Оновіть сторінку.';return}
+  host.innerHTML='';
+  const current=new Html5Qrcode('cam',{formatsToSupport:[Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E,Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.CODE_39,Html5QrcodeSupportedFormats.ITF],verbose:false});
+  scanner=current;let found=false;
+  // Serialize teardown after a pending permission/start request as well.
+  const starting=current.start({facingMode:'environment'},{fps:10},code=>{
+    if(found||token!==scanSession)return;found=true;lookup(code);
+  },()=>{});
+  cameraWork=starting.catch(()=>{});
+  try{
+    await starting;
+    if(token!==scanSession||!host.isConnected){if(current.isScanning)await current.stop();return}
+    status.textContent='Наведіть камеру на штрих-код упаковки.';
+    torchOn=false;
+    try{$('#torch').hidden=!current.getRunningTrackCapabilities().torch}catch(_){}
+  }catch(error){if(token===scanSession&&status.isConnected){status.textContent=cameraMessage(error);$('#retryScan').hidden=false}}
+}
+async function scanPhoto(file){
+  if(!file)return;
+  await stopCam();const token=scanSession;
+  const status=$('#scanStatus');if(!status)return;
+  status.textContent='Зчитую штрих-код із фото…';
+  try{
+    if(!window.Html5Qrcode)throw Error('Бібліотека недоступна');
+    $('#cam').innerHTML='';const reader=new Html5Qrcode('cam');
+    const code=await reader.scanFile(file,true);reader.clear();
+    if(token===scanSession)await lookup(code);
+  }catch(_){if(token===scanSession){status.textContent='Код не знайдено на фото. Спробуйте ближче, без відблисків, або введіть номер вручну.';$('#retryScan').hidden=false}}
+}
+async function lookup(raw){
+  const code=String(raw||'').trim();
+  if(!/^\d{8,14}$/.test(code)&&!(/^[A-Za-z0-9._-]{4,80}$/.test(code))){toast('Введіть номер штрих-коду');return}
+  await stopCam();
+  if(typeof CLOUD!=='undefined'&&CLOUD&&S.back&&S.mode==='take'&&S.bindTake!==undefined)return cloudBind(code);
+  if(S.back&&S.mode==='take'&&S.bindTake!==undefined){
+    const p=P.find(p=>p.id===S.pid),t=S.tp[S.bindTake];
+    t.code=code;p.codes[t.s]=code;p.barcodeSizes={...p.barcodeSizes,[code]:t.s};
+    B.filter(b=>b.p===p.id&&b.s===t.s&&b.x===t.x).forEach(b=>b.code=code);
+    S.back=false;persistState();return bcSheet(S.bindTake);
+  }
+  for(const p of P){
+    const f=Object.entries(p.codes).find(([,c])=>c===code),sz=f?+f[0]:p.barcodeSizes?.[code];
+    if(sz){
+      if(S.back&&p.id===S.pid){S.back=false;S.stage='card';S.f={s:sz,n:1,x:'',code,name:pname(p,sz)};return drawOp()}
+      S.back=false;return opSheet(p.id,'add',code);
+    }
+  }
+  if(S.back){const p=P.find(p=>p.id===S.pid);S.back=false;const prior=S.f;S.stage='card';S.f={s:prior?.s||1,n:prior?.n||1,x:prior?.x||'',photo:prior?.photo,code,name:prior?.name||pname(p,1)};return drawOp()}
+  show(`<div class="row"><h2>Невідомий код</h2><button data-close style="border:0">✕</button></div>
+  <p class="note">Коду ${esc(code)} ще немає в базі. Створіть новий продукт або прив’яжіть код до наявного.</p>
+  <button class="pri" style="width:100%;margin-bottom:10px" data-create="${esc(code)}">＋ Новий продукт</button>
+  <div class="lbl">Або це інша фасовка вже наявного:</div><div class="plist">${P.map(p=>`<button data-link="${p.id}|${esc(code)}"><span class="product-emoji">${productEmoji(p)}</span>${esc(p.n)}</button>`).join('')}</div>`);
+}
+async function attachPhoto(file){
+  if(!S.f||!file)return;
+  const form=S.f;
+  if(file.size>25*1024*1024){toast('Фото завелике. Виберіть файл до 25 МБ');return}
+  const url=URL.createObjectURL(file);
+  try{
+    const image=new Image();image.src=url;await image.decode();
+    const photo=compactPhoto(image);
+    if(S.f!==form||$('#ov').hidden)return;
+    form.photo=photo;drawOp();
+  }catch(_){toast('Не вдалося відкрити фото. Виберіть JPEG, PNG або інше підтримуване зображення.')}
+  finally{URL.revokeObjectURL(url)}
+}
+function compactPhoto(image){
+  const canvas=document.createElement('canvas');
+  let edge=1000;
+  for(let pass=0;pass<5;pass++){
+    const scale=Math.min(1,edge/Math.max(image.width,image.height));
+    canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));
+    canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);
+    for(const quality of [.82,.72,.62,.5]){
+      const photo=canvas.toDataURL('image/jpeg',quality);
+      if(!photo.startsWith('data:image/jpeg;base64,'))throw Error('JPEG not supported');
+      const raw=photo.slice(photo.indexOf(',')+1);
+      const bytes=raw.length*3/4-(raw.endsWith('==')?2:raw.endsWith('=')?1:0);
+      if(bytes<=200*1024)return photo;
+    }
+    edge=Math.round(edge*.8);
+  }
+  throw Error('Photo compression failed');
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){
+    stopCam();
+    if($('#scanStatus')){
+      $('#scanStatus').textContent='Камеру призупинено. Натисніть «Увімкнути камеру», щоб продовжити.';
+      $('#retryScan').hidden=false;$('#torch').hidden=true;
+    }
+  }
+});
+window.addEventListener('pagehide',()=>stopCam());
+
+function createSheet(code){
+  show(`<div class="row"><h2>Новий продукт</h2><button data-close style="border:0">✕</button></div>
+  <div class="lbl">Назва</div><input id="nn" placeholder="напр. Пшоно">
+  <label class="lbl" for="nu">Одиниця</label><select id="nu"><option value="kg">Кілограми</option><option value="l">Літри</option><option value="pcs">Штуки</option></select><div class="lbl">Розмір пачки в обраній одиниці</div><input id="ns" inputmode="decimal" value="1">
+  <div class="lbl">Цільова норма, кг або л</div><input id="nm" inputmode="decimal" value="2">
+  <div class="note">Витрату на місяць і строк можна налаштувати пізніше.</div>
+  <button class="pri" style="width:100%;min-height:54px" data-save="${code}">Створити і додати пачку</button>`);
+}
+
+// ===== події =====
+document.addEventListener('click',e=>{
+  const t=e.target.closest('button,[data-tk],[data-nx]');if(!t){if(e.target.id==='ov')close();return}
+  const D=t.dataset;
+  if(D.tab){const n=D.tab==='n';document.querySelectorAll('.tabs button').forEach(b=>b.toggleAttribute('aria-current',b.dataset.tab===D.tab));
+    $('#list').hidden=n;$('#tools').hidden=n;$('#bScan').hidden=n;$('#norms').hidden=!n;if(n)renderNorms()}
+  else if('gear' in D)show('<div class="row"><h2>Налаштування</h2><button data-close style="border:0" aria-label="Закрити">✕</button></div><p class="sub">Тут будуть налаштування застосунку.</p>');
+  else if(D.nx!==undefined){if(!e.target.closest('.nres'))t.closest('.nrow').classList.toggle('open')}
+  else if(D.rst){const p=P.find(p=>String(p.id)===String(D.rst));p.ov=null;recalc(p);updRes(p);render()}
+  else if(D.f){filter=D.f;render()}
+  else if(D.op){const[m,id]=D.op.split('|');const p=P.find(p=>String(p.id)===String(id));opSheet(resolveProductId(id),m==='auto'?(info(p).packs?'take':'add'):m)}
+  else if(D.eat){const[id,s,x]=D.eat.split('|');take(resolveProductId(id),+s,1,x);if(!$('#ov').hidden)drawOp()}
+  else if('close' in D)close();
+  else if('scan' in D){S.back=true;scanSheet()}
+  else if('ml' in D){S.ml=!S.ml;drawOp()}
+  else if('dt' in D){S.dt=!S.dt;drawOp()}
+  else if('manual' in D){const p=P.find(p=>p.id===S.pid);S.stage='card';S.f={s:1,n:1,x:'',code:'',name:pname(p,1)};drawOp()}
+  else if('wt' in D){S.sz=!S.sz;S.addSz=false;drawOp()}
+  else if(D.fs!==undefined){const p=P.find(p=>p.id===S.pid);S.f.s=+D.fs;S.f.name=pname(p,S.f.s);S.sz=false;drawOp()}
+  else if('dp' in D){S.dp=!S.dp;drawOp()}
+  else if('dpok' in D){const m=+$('#mm').value,y=+$('#yy').value;S.f.x=new Date(Date.UTC(y,m+1,0)).toISOString().slice(0,10);S.dp=false;drawOp()}
+  else if(D.ra){S.f.n=Math.max(1,S.f.n+ +D.ra.split('|')[1]);drawOp()}
+  else if(D.rsc!==undefined){S.s=S.rows[+D.rsc].s;S.back=true;scanSheet()}
+  else if('nsz' in D){S.addSz=true;drawOp()}
+  else if('nszok' in D){const v=parseFloat(($('#nsz').value||'').replace(',','.'));if(v>0){const p=P.find(p=>p.id===S.pid);S.f.s=v;S.f.name=pname(p,v);S.addSz=false;S.sz=false;drawOp()}}
+  else if(D.tk!==undefined){const p=P.find(p=>p.id===S.pid),t=S.tp[+D.tk];
+    if(!t.done){const g=B.find(b=>b.p===p.id&&b.s===t.s&&b.x===t.x&&b.photo===t.photo&&b.q>0);if(g){g.q--;B=B.filter(b=>b.q>0);t.done=1}}
+    else{const g=B.find(b=>b.p===p.id&&b.s===t.s&&b.x===t.x&&b.photo===t.photo);g?g.q++:B.push({p:p.id,s:t.s,x:t.x,q:1,k:t.k||off(0),photo:t.photo,code:t.code,name:t.name});t.done=0}
+    render();drawOp()}
+  else if(D.bc!==undefined)bcSheet(+D.bc);
+  else if('back' in D)drawOp();
+  else if(D.bcscan!==undefined){S.bindTake=+D.bcscan;S.s=S.tp[S.bindTake].s;S.back=true;scanSheet()}
+  else if(D.mode){S.mode=D.mode;S.n=1;S.tp=null;S.rows=null;S.addSz=false;S.stage='start';S.f=null;S.dp=false;S.sz=false;if(D.mode==='take'){const p=P.find(p=>p.id===S.pid),st=[...new Set(info(p).bs.map(b=>b.s))];if(st.length&&!st.includes(S.s))S.s=st.includes(1)?1:st[0]}drawOp()}
+  else if(D.sz){if(D.sz==='new'){const v=parseFloat((prompt('Розмір пачки (кг або л):')||'').replace(',','.'));if(v>0){const p=P.find(p=>p.id===S.pid);p.codes[v]=p.codes[v]||'';S.s=v}}else S.s=+D.sz;S.n=1;S.cd=undefined;drawOp()}
+  else if(D.n){const av=B.filter(b=>b.p===S.pid&&b.s===S.s).reduce((a,b)=>a+b.q,0);S.n=Math.max(1,Math.min(S.mode==='take'?Math.max(1,av):99,S.n+ +D.n));drawOp()}
+  else if(D.k!==undefined){S.k=off(-D.k);if(!S.xm)S.x=plus(S.k,P.find(p=>p.id===S.pid).life);drawOp()}
+  else if('code' in D){const c=(S.cd||'').trim();if(c){P.find(p=>p.id===S.pid).codes[S.s]=c;toast('Штрих-код збережено')}}
+  else if('go' in D){goAdd();close()}
+  else if('lookup' in D)lookup($('#code').value.trim());
+  else if(D.demo)lookup(D.demo);
+  else if(D.link){const[id,c]=D.link.split('|');const p=P.find(p=>String(p.id)===String(id));opSheet(resolveProductId(id),'add');S.stage='card';S.f={s:1,n:1,x:'',code:c,name:pname(p,1)};drawOp()}
+  else if(D.create)createSheet(D.create);
+  else if(D.save){const n=$('#nn').value.trim();if(!n)return;const s=parseFloat($('#ns').value.replace(',','.'))||1,nm=parseFloat($('#nm').value.replace(',','.'))||2;
+    const p={id:Date.now(),n,e:'📦',u:'кг',seg:s,normP:Math.max(1,Math.round(nm/s)),use:nm/3,life:365,codes:{[s]:D.save}};mk(p);P.push(p);render();opSheet(p.id,'add',D.save)}
+});
+document.addEventListener('input',e=>{if(e.target.classList&&e.target.classList.contains('ei'))e.target.style.width=Math.max(2,e.target.value.length+1)+'ch';if(e.target.dataset.ne!==undefined){const[id,k]=e.target.dataset.ne.split('|'),p=P.find(p=>String(p.id)===String(id)),v=parseFloat(e.target.value.replace(',','.'));if(v>0){if(k==='packs'){const n=Math.max(1,Math.round(v));p.ov=n===p.calc?null:n}else p[k]=v;recalc(p);updRes(p);render()}return}
+  if(e.target.id==='cd')S.cd=e.target.value;if(e.target.dataset.fn!==undefined){S.f.name=e.target.value;NM[S.pid+'|'+S.f.s]=e.target.value}});
+document.addEventListener('change',e=>{
+  const id=e.target.id;
+  if(e.target.dataset.dt!==undefined){S.rows[+e.target.dataset.dt].x=e.target.value;return}
+  if(id==='k'&&e.target.value){S.k=e.target.value;if(!S.xm)S.x=plus(S.k,P.find(p=>p.id===S.pid).life);drawOp()}
+  else if(id==='x'&&e.target.value){S.x=e.target.value;S.xm=true;drawOp()}
+  else if(id.startsWith('ph')&&e.target.files?.[0])attachPhoto(e.target.files[0]);
+});
+const NF=(n,d=1)=>String(+(+n).toFixed(d)).replace('.',',');
+const FL=[['g','На 1 особу за місяць'],['people','Осіб'],['months','Запас на, міс.'],['life','Придатне, днів'],['pack','Пачка']];
+function rsHtml(p){const u=p.u;return (p.ov?`<button class="lnk2" data-rst="${p.id}" aria-label="Скинути до розрахунку: ${p.calc}">↺ ${p.calc}</button>`:`≈ ${NF(p.target,2)} ${u}`)+(p.capped?`<div class="warn">Запас більший за строк придатності: враховано ${p.life} дн.</div>`:'')}
+function updRes(p){const r=$('#res'+p.id);if(!r)return;const ep=r.querySelector('.ep');if(document.activeElement!==ep)ep.value=p.normP;ep.classList.toggle('man',!!p.ov);r.querySelector('.rr span').textContent=pk(p.normP);r.querySelector('.rs').innerHTML=rsHtml(p)}
+function renderNorms(){
+  const un=p=>p.u==='шт.'?'шт.':p.u==='л'?'мл':'г';
+  const nf=(p,k,l)=>`<label class="nf nf-${k}"><span class="nl">${l}</span><span class="nbox"><input class="ei" data-ne="${p.id}|${k}" inputmode="decimal" value="${NF(p[k]/(p.u==='шт.'&&['g','pack'].includes(k)?1000:1),2)}" style="width:${Math.max(2,NF(p[k]/(p.u==='шт.'&&['g','pack'].includes(k)?1000:1),2).length+1)}ch">${k==='g'||k==='pack'?`<span class="un">${un(p)}</span>`:k==='life'?'<span class="un">дн.</span>':''}</span></label>`;
+  $('#norms').innerHTML=(typeof CLOUD!=='undefined'&&CLOUD?'<div class="norm-product-tools"><button data-new-product>＋ Додати продукт</button></div>':'')+`
+  <div class="nt2"><div class="nrow nhead"><span>Продукт</span>${FL.map(f=>`<span>${f[1]}</span>`).join('')}<span>Тримати, пачок</span></div>`+
+  P.map(p=>`<div class="nrow"><div class="nhd" data-nx="${p.id}"><div class="nname"><span class="product-emoji">${productEmoji(p)}</span> ${typeof CLOUD!=='undefined'&&CLOUD?`<input class="product-name-input" data-name-product="${p.id}" value="${esc(p.n)}" maxlength="100" aria-label="Назва продукту ${esc(p.n)}">`:esc(p.n)} <span class="nchev">▾</span></div><div class="nres" id="res${p.id}"><div class="rr"><input class="ep ${p.ov?'man':''}" data-ne="${p.id}|packs" inputmode="numeric" value="${p.normP}" aria-label="Пачок"><div class="rw"><span>${pk(p.normP)}</span><div class="rs">${rsHtml(p)}</div></div></div></div></div>${FL.map(f=>nf(p,f[0],f[1])).join('')}</div>`).join('')+'</div>';
+}
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='code')lookup(e.target.value.trim())});
+document.addEventListener('focusin',e=>{if(e.target.matches&&e.target.matches('.ep,.ei')){const t=e.target;setTimeout(()=>{try{t.select();t.setSelectionRange(0,99)}catch(_){}},0)}});
+document.addEventListener('focusout',e=>{const t=e.target;if(t.dataset&&t.dataset.ne!==undefined){const[id,k]=t.dataset.ne.split('|'),p=P.find(p=>String(p.id)===String(id));if(p){t.value=k==='packs'?p.normP:NF(p[k]/(p.u==='шт.'&&['g','pack'].includes(k)?1000:1),2);if(k!=='packs')t.style.width=Math.max(2,t.value.length+1)+'ch'}}});
+$('#q').oninput=render;
+$('#bScan').onclick=()=>{S={};scanSheet('add')};
+
+// Separate storage for the redesigned local frontend; legacy data is untouched.
+let localDb=null,storageReady=false;
+function persistState(){
+  if(typeof CLOUD!=='undefined'&&CLOUD)return;
+  if(!storageReady||!localDb)return;
+  try{
+    const tx=localDb.transaction('state','readwrite');
+    tx.objectStore('state').put({version:1,P,B,NM},'pantry');
+    tx.onabort=()=>toast('Не вдалося зберегти зміни на пристрої. Перевірте вільне місце.');
+  }catch(_){toast('Не вдалося зберегти зміни на пристрої.')}
+}
+async function initLocalState(){
+  if(typeof CLOUD!=='undefined'&&CLOUD)return initConnectedState();
+  try{
+    localDb=await new Promise((resolve,reject)=>{
+      const req=indexedDB.open('komora-redesign-local',1);
+      req.onupgradeneeded=()=>req.result.createObjectStore('state');
+      req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+    });
+    const state=await new Promise((resolve,reject)=>{
+      const req=localDb.transaction('state').objectStore('state').get('pantry');
+      req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+    });
+    if(state?.version===1&&Array.isArray(state.P)&&Array.isArray(state.B)){
+      P=state.P;B=state.B;Object.assign(NM,state.NM||{});P.forEach(mk);
+    }
+  }catch(_){toast('Сховище браузера недоступне: зміни збережуться лише до закриття сторінки.')}
+  storageReady=true;render();
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
+if('serviceWorker' in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('./sw.js').catch(()=>{});
+
+
+const WEB_APP_URL='https://script.google.com/macros/s/AKfycbynGGRQY2DmrbHzpX77Is_bftrgM6rrZa7o8Dbcbyyi7OHWYXl_lwp-yyNR7mB-LYr_sQ/exec';
+const CLOUD=!new URLSearchParams(location.search).has('demo');
+const CLOUD_KEY='komora-cloud-v2:'+WEB_APP_URL.split('/').at(-2)+':';
+let cloudPin='',cloudRevision=-1,cloudBusy=false,cloudOnline=false,cloudLast=null,cloudPending=null,cloudPendingOptions=null,cloudEpoch=0,cloudPolling=false;
+let normTimer,undoTimer,retryTimer,cloudAuthenticating=false;
+let cloudQueue=[];
+const queuedOptions=new Map(),recentOperations=new Map();
+const normDrafts=new Map(),cloudPhotos=new Map(),photoJobs=new Map();
+function resolveProductId(id){return P.find(p=>String(p.id)===String(id))?.id??id}
+function stored(key){try{return localStorage.getItem(CLOUD_KEY+key)}catch(_){return null}}
+function storeValue(key,value){localStorage.setItem(CLOUD_KEY+key,value)}
+function forget(key){try{localStorage.removeItem(CLOUD_KEY+key)}catch(_){}}
+function cloudStatus(message){const el=$('#syncText');if(el)el.textContent=message;const button=$('#cloudRefresh');if(button)button.textContent=cloudPending?'Синхронізувати':'Оновити';}
+function cloudControls(){
+  document.querySelectorAll('[data-go],[data-save],[data-ne],[data-rst]').forEach(el=>el.disabled=false);
+  if($('#cloudLogout'))$('#cloudLogout').disabled=false;
+}
+function saveQueue(){storeValue('queue',JSON.stringify(cloudQueue));cloudPending=cloudQueue[0]?.request||null;}
+function queueStatus(){
+  if(cloudQueue.length)cloudStatus((cloudOnline?'Зберігаю у фоні':'Немає зв’язку · збережу пізніше')+' · '+cloudQueue.length);
+  else cloudStatus(cloudOnline?'Збережено · спільна комора':'Немає зв’язку · останні дані');
+}
+function loadQueue(){
+  try{cloudQueue=JSON.parse(stored('queue')||'[]');if(!Array.isArray(cloudQueue))cloudQueue=[];}catch(_){cloudQueue=[];}
+  if(!cloudQueue.length){try{const old=JSON.parse(stored('pending')||'null');if(old){cloudQueue=[{request:old,sent:true}];saveQueue();forget('pending');}}catch(_){}}
+  cloudQueue.forEach(entry=>recentOperations.set(entry.request.request_id,entry));
+  cloudPending=cloudQueue[0]?.request||null;
+}
+function optimisticFields(fields){
+  const p=P.find(p=>p.id===fields.product_id);
+  if(fields.action==='add'){
+    if(!p||B.some(b=>b.id===fields.batch_id))return;
+    const raw=cloudLast?.state?.Products.find(x=>x.product_id===p.id);
+    B.push({id:fields.batch_id,p:p.id,s:fields.pack_weight_kg,q:fields.packs_qty,k:fields.added_date||off(0),x:fields.expiry_date||plus(fields.added_date||off(0),p.life-Number(raw?.store_buffer_days||0)),code:fields.barcode||'',name:fields.pack_name||'',photo:fields.photo_base64||cloudPhotos.get(fields.photo_file_id)||'',photo_file_id:fields.photo_file_id||''});
+  }else if(fields.action==='take'){
+    const b=B.find(b=>b.id===fields.batch_id);if(b)b.q=Math.max(0,b.q-fields.packs_qty);
+  }else if(fields.action==='product_settings'){
+    const product=p||{id:fields.product_id,codes:{},barcodeSizes:{},names:{}};
+    Object.assign(product,{n:fields.name??p?.n,e:fields.emoji??p?.e??'📦',u:({kg:'кг',l:'л',pcs:'шт.'})[fields.unit]||p?.u||'кг',g:fields.monthly_usage_kg*1000,people:fields.people_count,months:fields.target_months,pack:fields.default_pack_weight*1000,life:fields.default_shelf_life_days,ov:fields.norm_packs_override});
+    recalc(product);if(!p)P.push(product);
+  }else if(fields.action==='barcode'&&p){
+    p.codes[fields.pack_weight_kg]=fields.barcode;p.barcodeSizes[fields.barcode]=fields.pack_weight_kg;
+    const b=B.find(b=>b.id===fields.batch_id);if(b)b.code=fields.barcode;
+  }
+}
+function projectQueue(){
+  if(!cloudLast)return;
+  P=cloudLast.frontend.P.map(p=>({...p,codes:{...p.codes},barcodeSizes:{...p.barcodeSizes}}));
+  B=cloudLast.frontend.B.map(b=>({...b,photo:cloudPhotos.get(b.photo_file_id)||''}));
+  cloudQueue.forEach(entry=>{
+    const f=entry.request;
+    if(f.action==='undo'){
+      const target=entry.inverse;
+      if(target?.request.action==='add'){const b=B.find(b=>b.id===target.request.batch_id);if(b)b.q=Math.max(0,b.q-target.request.packs_qty);}
+      if(target?.request.action==='take'&&target.batchBefore){const b=B.find(b=>b.id===target.batchBefore.id);if(b)b.q+=target.request.packs_qty;else B.push({...target.batchBefore,q:target.request.packs_qty});}
+      if(target?.request.action==='product_settings'&&target.productBefore){const i=P.findIndex(p=>p.id===target.productBefore.id);if(i>=0)P[i]={...target.productBefore};}
+    }else optimisticFields(f);
+  });
+  for(const fields of normDrafts.values())optimisticFields(fields);
+}
+async function cloudRequest(fields,pin=cloudPin){
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),35000);
+  try{
+    const response=await fetch(WEB_APP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...fields,pin}),redirect:'follow',cache:'no-store',credentials:'omit',signal:controller.signal});
+    const data=await response.json();
+    if(!data||typeof data.ok!=='boolean')throw Error('Некоректна відповідь сервера');
+    if(!data.ok){const error=Error(data.error||'Не вдалося виконати дію');error.code=data.code;throw error;}
+    return data;
+  }finally{clearTimeout(timer)}
+}
+function cloudApply(reply,{keepTake=false,paint=true}={}){
+  if(reply.api_version!==2||!reply.frontend||!Array.isArray(reply.frontend.P)||!Array.isArray(reply.frontend.B))throw Error('Потрібна актуальна версія сервера API v2.');
+  if(reply.revision<cloudRevision)return;
+  cloudLast=reply;cloudRevision=reply.revision;
+  projectQueue();
+  Object.keys(NM).forEach(k=>delete NM[k]);
+  P.forEach(p=>Object.entries(p.codes).forEach(([size,code])=>{if(p.names?.[code])NM[p.id+'|'+size]=p.names[code]}));
+  try{storeValue('cache',JSON.stringify(reply))}catch(_){}
+  if(!keepTake)S.tp=null;
+  if(paint)cloudPaint(keepTake);
+}
+function cloudPaint(keepTake=false){
+  render();
+  if(!$('#norms').hidden&&!document.activeElement?.closest?.('#norms')){
+    const expanded=[...document.querySelectorAll('.nrow.open [data-nx]')].map(x=>x.dataset.nx);
+    renderNorms();expanded.forEach(id=>document.querySelector(`[data-nx="${CSS.escape(id)}"]`)?.closest('.nrow').classList.add('open'));
+  }
+  if(!$('#ov').hidden&&S.pid&&P.some(p=>p.id===S.pid)&&$('#sheet').classList.contains('take')){
+    if(!keepTake)S.tp=null;drawOp();cloudLoadPhotos();
+  }
+  cloudControls();
+}
+function cloudSessionVisible(visible){
+  $('#cloudLogin').hidden=visible;
+  if($('#cloudBoot'))$('#cloudBoot').hidden=true;
+  for(const selector of ['header','main','#bScan'])$(selector).hidden=!visible;
+  if(visible)$('#bScan').hidden=!$('#norms').hidden;
+}
+function cloudLoginMessage(message){$('#loginError').textContent=message;}
+async function cloudLogin(pin,{allowCache=false}={}){
+  if(cloudAuthenticating)return;
+  if(!/^\d{4}$/.test(pin)){cloudLoginMessage('Введіть чотири цифри PIN.');return}
+  cloudAuthenticating=true;const epoch=++cloudEpoch;$('#loginSubmit').disabled=true;cloudLoginMessage('Підключаюся…');
+  try{
+    const reply=await cloudRequest({action:'snapshot'},pin);if(epoch!==cloudEpoch)return;
+    cloudPin=pin;cloudOnline=true;
+    if(cloudQueue[0]?.sent&&cloudLast)cloudRevision=reply.revision;else cloudApply(reply,{paint:false});
+    try{storeValue('pin',pin)}catch(_){}
+    cloudSessionVisible(true);cloudLoginMessage('');queueStatus();cloudPaint(true);
+  }catch(error){
+    if(error.code==='AUTH'){forget('pin');cloudPin='';cloudSessionVisible(false);cloudLoginMessage('Неправильний PIN. Спробуйте ще раз.');}
+    else if(allowCache&&!error.code&&stored('cache')){
+      try{cloudPin=pin;cloudApply(JSON.parse(stored('cache')),{paint:false});cloudOnline=false;cloudSessionVisible(true);cloudPaint(true);queueStatus();}
+      catch(_){cloudLoginMessage('Не вдалося підключитися. Перевірте інтернет і спробуйте ще раз.');}
+    }else{cloudSessionVisible(false);cloudLoginMessage(error.code?error.message:'Не вдалося підключитися. Перевірте інтернет або відкрийте сторінку у Chrome / Edge.');}
+  }finally{if(epoch===cloudEpoch){cloudAuthenticating=false;$('#loginSubmit').disabled=false;cloudControls();}}
+  if(cloudQueue.length&&cloudOnline)cloudSendPending();
+}
+async function cloudRefresh(){
+  if(!cloudPin||cloudBusy||cloudAuthenticating||cloudPolling)return;
+  if(cloudQueue.length)return cloudSendPending();
+  if(normDrafts.size)return flushNorms();
+  cloudPolling=true;const epoch=cloudEpoch;
+  try{
+    const version=await cloudRequest({action:'revision'});
+    if(epoch!==cloudEpoch||cloudBusy)return;
+    if(version.revision!==cloudRevision){
+      const reply=await cloudRequest({action:'snapshot'});if(epoch!==cloudEpoch||cloudBusy)return;cloudApply(reply);
+    }
+    cloudOnline=true;cloudStatus('Збережено · спільна комора');
+  }catch(error){
+    if(epoch!==cloudEpoch)return;
+    cloudOnline=false;
+    if(error.code==='AUTH'){cloudLogout();cloudLoginMessage('PIN змінено. Увійдіть знову.');}
+    else queueStatus();
+  }finally{cloudPolling=false;cloudControls()}
+}
+function cloudCanChange(){
+  return !!cloudPin&&!!cloudLast;
+}
+function cloudUndoToast(message,target){
+  clearTimeout(undoTimer);const box=$('#toast');box.hidden=false;
+  box.innerHTML=`<span>${esc(message)}</span><button id="cloudUndo">Скасувати</button>`;
+  $('#cloudUndo').onclick=()=>{if(cloudCanChange()){box.hidden=true;cloudMutate({action:'undo',target_id:target},{message:'Дію скасовано',undo:false,after(){S.tp=null;if(!$('#ov').hidden&&S.mode==='take')drawOp()}})}};
+  undoTimer=setTimeout(()=>box.hidden=true,5000);
+}
+async function cloudMutate(fields,options={}){
+  if(!cloudCanChange())return false;
+  if(fields.action==='add'&&!fields.batch_id)fields={...fields,batch_id:crypto.randomUUID()};
+  const request={...fields,request_id:crypto.randomUUID()};
+  const beforeBatch=B.find(b=>b.id===fields.batch_id),beforeProduct=P.find(p=>p.id===fields.product_id);
+  const entry={request,sent:false,batchBefore:beforeBatch?JSON.parse(JSON.stringify(beforeBatch)):null,productBefore:beforeProduct?JSON.parse(JSON.stringify(beforeProduct)):null};
+  if(fields.action==='undo'){const target=recentOperations.get(fields.target_id);if(target)entry.inverse={request:target.request,batchBefore:target.batchBefore,productBefore:target.productBefore};}
+  cloudQueue.push(entry);
+  try{saveQueue()}catch(_){cloudQueue.pop();cloudPending=cloudQueue[0]?.request||null;toast('Браузер не може зберегти запит. Зміни не надіслано.');return false}
+  recentOperations.set(request.request_id,JSON.parse(JSON.stringify(entry)));queuedOptions.set(request.request_id,options);
+  while(recentOperations.size>50)recentOperations.delete(recentOperations.keys().next().value);
+  options.optimistic?.();projectQueue();options.enqueued?.(request.request_id);cloudPaint(true);queueStatus();
+  if(options.undo!==false)cloudUndoToast(options.message||'Зміну додано',request.request_id);else if(options.message)toast(options.message);
+  cloudSendPending();return true;
+}
+function canRebase(entry,reply){
+  const f=entry.request,p=reply.frontend.P.find(p=>p.id===f.product_id),batch=reply.frontend.B.find(b=>b.id===f.batch_id);
+  if(f.action==='add')return !!p&&!batch;
+  if(f.action==='take')return !!batch&&batch.q>=f.packs_qty&&(!entry.batchBefore||(batch.s===entry.batchBefore.s&&batch.p===entry.batchBefore.p&&batch.x===entry.batchBefore.x));
+  if(f.action==='barcode')return !!p&&(!f.batch_id||!!batch)&&!reply.state.Barcodes.some(b=>String(b.barcode)===f.barcode&&b.product_id!==f.product_id);
+  if(f.action==='product_settings'){
+    if(!entry.productBefore)return !p&&!reply.frontend.P.some(p=>p.n.toLowerCase()===f.name.toLowerCase());
+    return !!p&&JSON.stringify(settingsPayload(p))===JSON.stringify(settingsPayload(entry.productBefore));
+  }
+  return false;
+}
+async function cloudSendPending(){
+  if(cloudBusy||cloudAuthenticating||!cloudPin||!cloudQueue.length)return false;
+  clearTimeout(retryTimer);const epoch=cloudEpoch;cloudBusy=true;
+  try{
+    while(cloudQueue.length&&cloudPin&&epoch===cloudEpoch){
+      const entry=cloudQueue[0],request=entry.request;
+      if(!entry.sent){request.revision=cloudRevision;entry.sent=true;saveQueue();}
+      try{
+        const reply=await cloudRequest(request);if(epoch!==cloudEpoch)return false;
+        cloudQueue.shift();saveQueue();cloudOnline=true;
+        cloudApply(reply,{keepTake:true});
+        queuedOptions.get(request.request_id)?.after?.(reply,request.request_id);queuedOptions.delete(request.request_id);
+      }catch(error){
+        if(epoch!==cloudEpoch)return false;
+        if(error.code==='CONFLICT'){
+          const reply=await cloudRequest({action:'snapshot'});if(epoch!==cloudEpoch)return false;
+          if((entry.rebases||0)<3&&canRebase(entry,reply)){
+            entry.rebases=(entry.rebases||0)+1;request.revision=reply.revision;saveQueue();cloudApply(reply,{keepTake:true});continue;
+          }
+          cloudQueue.shift();saveQueue();queuedOptions.delete(request.request_id);cloudApply(reply);toast('Дані цієї пачки або норми змінилися на іншому пристрої. Перевірте їх і повторіть дію.');
+        }else if(error.code==='AUTH'){
+          cloudOnline=false;forget('pin');cloudPin='';cloudSessionVisible(false);cloudLoginMessage('PIN змінено. Увійдіть знову — черга змін збережена.');break;
+        }else if(error.code&&error.code!=='SERVER'){
+          cloudQueue.shift();saveQueue();queuedOptions.delete(request.request_id);projectQueue();S.tp=null;cloudPaint();toast(esc(error.message));
+        }else{cloudOnline=false;break;}
+      }
+      queueStatus();
+    }
+    return !cloudQueue.length;
+  }catch(_){cloudOnline=false;return false;}
+  finally{if(epoch===cloudEpoch){cloudBusy=false;queueStatus();cloudControls();if(cloudQueue.length&&cloudPin)retryTimer=setTimeout(()=>cloudSendPending(),10000)}}
+}
+function cloudLogout(){
+  flushNorms();++cloudEpoch;cloudBusy=false;cloudAuthenticating=false;clearTimeout(retryTimer);forget('pin');cloudPin='';cloudOnline=false;cloudLast=null;cloudRevision=-1;
+  P=[];B=[];cloudPhotos.clear();close();cloudSessionVisible(false);$('#cloudPin').value='';cloudLoginMessage('');
+}
+function settingsPayload(p){return {action:'product_settings',product_id:p.id,name:p.n,emoji:p.e,unit:({'кг':'kg','л':'l','шт.':'pcs'})[p.u],monthly_usage_kg:p.g/1000,people_count:p.people,target_months:p.months,default_pack_weight:p.pack/1000,default_shelf_life_days:p.life,norm_packs_override:p.ov||null};}
+function productEditor(id){
+  const p=P.find(p=>p.id===id),hasStock=p&&info(p).packs>0;
+  S={editorId:id||'',mode:'editor'};
+  const unit=p?({'кг':'kg','л':'l','шт.':'pcs'})[p.u]:'kg';
+  show(`<form id="productForm"><div class="top3"><h2>${p?'Редагувати продукт':'Новий продукт'}</h2><button type="button" data-close aria-label="Закрити">✕</button></div>
+  <label class="editor-field">Назва<input id="productName" required maxlength="100" value="${esc(p?.n||'')}" placeholder="Наприклад, Олія соняшникова"></label>
+  <div class="two"><label class="editor-field">Емодзі<input id="productEmoji" maxlength="16" required value="${esc(p?.e||'📦')}"></label>
+  <label class="editor-field">Одиниця<select id="productUnit" ${hasStock?'disabled':''}>${[['kg','Кілограми'],['l','Літри'],['pcs','Штуки']].map(([v,t])=>`<option value="${v}" ${unit===v?'selected':''}>${t}</option>`).join('')}</select></label></div>
+  ${hasStock?'<p class="sub">Одиницю можна змінити, коли немає пачок. Назву та емодзі — будь-коли.</p>':''}
+  <label class="editor-field">Типова фасовка, кг / л / шт.<input id="productPack" type="number" inputmode="decimal" min="0.000001" step="any" value="${p?p.pack/1000:1}" required></label>
+  <p class="sub">Кількість людей, витрату та цільовий запас можна налаштувати у «Норми та розрахунки».</p>
+  <button class="pri" type="submit" style="width:100%">${p?'Зберегти зміни':'Додати продукт'}</button></form>`);
+  $('#productForm').onsubmit=async e=>{
+    e.preventDefault();if(!cloudCanChange())return;
+    const productId=p?.id||crypto.randomUUID(),name=$('#productName').value.trim(),emoji=$('#productEmoji').value.trim(),pack=Number($('#productPack').value.replace(',','.'));
+    if(!name||!emoji||!(pack>0)){toast('Перевірте назву, емодзі та фасовку.');return}
+    const current=P.find(item=>item.id===productId)||p;
+    const fields=current?settingsPayload(current):{action:'product_settings',product_id:productId,monthly_usage_kg:0,people_count:1,target_months:3,default_shelf_life_days:365,store_buffer_days:0,norm_packs_override:null};
+    Object.assign(fields,{name,emoji,unit:$('#productUnit').value,default_pack_weight:pack});
+    await cloudMutate(fields,{message:p?'Продукт оновлено':'Продукт додано',enqueued(){close()}});
+  };
+}
+function queueNorm(p){normDrafts.set(p.id,settingsPayload(p));cloudStatus('Є незбережені зміни норм…');clearTimeout(normTimer);normTimer=setTimeout(flushNorms,650);}
+async function flushNorms(){
+  clearTimeout(normTimer);
+  for(const [id,fields] of [...normDrafts]){normDrafts.delete(id);cloudMutate(fields,{message:'Норми оновлено'});}
+}
+async function cloudAdd(){
+  if(!cloudCanChange())return;
+  await flushNorms();
+  const form=S.f,p=P.find(p=>p.id===S.pid);if(!form||!p)return;
+  const batchId=crypto.randomUUID(),fields={action:'add',product_id:p.id,batch_id:batchId,packs_qty:form.n,pack_weight_kg:form.s,added_date:off(0),barcode:form.code||p.codes[form.s]||'',save_barcode:true,pack_name:form.name,expiry_date:form.x||undefined,photo_base64:form.photo||undefined};
+  await cloudMutate(fields,{message:`Додано ${form.n} ${pk(form.n)} · ${p.n}`,enqueued(){if(S.f===form)close()}});
+}
+async function cloudTake(index){
+  if(!cloudCanChange())return;
+  const tile=S.tp?.[index];if(!tile)return;
+  if(tile.done){
+    if(!tile.operation_id){toast('Цю дію вже не можна скасувати тут.');return}
+    await cloudMutate({action:'undo',target_id:tile.operation_id},{message:'Пачку повернуто',undo:false,enqueued(){tile.done=0;tile.operation_id=null;if(S.tp?.includes(tile))drawOp()}});return;
+  }
+  const batch=B.find(b=>b.id===tile.id&&b.q>0);if(!batch){toast('Цієї пачки вже немає. Оновіть дані.');return}
+  const qty=Math.min(1,batch.q);
+  await cloudMutate({action:'take',product_id:S.pid,batch_id:tile.id,packs_qty:qty},{message:'Пачку взято',enqueued(id){tile.done=1;tile.operation_id=id;if(S.tp?.includes(tile))drawOp()}});
+}
+async function cloudBind(code){
+  if(!cloudCanChange())return;
+  const index=S.bindTake,tile=S.tp?.[index];if(!tile)return;
+  await cloudMutate({action:'barcode',product_id:S.pid,batch_id:tile.id,barcode:code,pack_weight_kg:tile.s,pack_name:tile.name||''},{message:'Штрих-код збережено',enqueued(){tile.code=code;S.back=false;bcSheet(index)}});
+}
+async function cloudCreate(code){
+  if(!cloudCanChange())return;
+  const name=$('#nn').value.trim(),weight=Number($('#ns').value.replace(',','.')),norm=Number($('#nm').value.replace(',','.')),unit=$('#nu')?.value||'kg';
+  if(!name||!(weight>0)||!(norm>0)){toast('Перевірте назву, фасовку та норму.');return}
+  const id=crypto.randomUUID();
+  await cloudMutate({action:'product_settings',product_id:id,name,unit,emoji:'📦',monthly_usage_kg:norm/3,people_count:1,target_months:3,default_pack_weight:weight,default_shelf_life_days:365,store_buffer_days:0,norm_packs_override:Math.max(1,Math.ceil(norm/weight))},{undo:false,message:'Продукт створено. Тепер підтвердьте додавання пачки.',enqueued(){opSheet(id,'add',code);S.f.s=weight;S.f.code=code;drawOp()}});
+}
+async function cloudLoadPhotos(){
+  if(!CLOUD||!S.tp||!cloudOnline)return;
+  const sessionPin=cloudPin;
+  const files=[...new Set(S.tp.map(t=>t.photo_file_id).filter(Boolean))];
+  for(const file of files){
+    if(cloudPhotos.has(file))continue;
+    try{
+      if(!photoJobs.has(file))photoJobs.set(file,cloudRequest({action:'photo',file_id:file}).then(r=>r.photo));
+      const photo=await photoJobs.get(file);if(sessionPin!==cloudPin)return;cloudPhotos.set(file,photo);
+      B.filter(b=>b.photo_file_id===file).forEach(b=>b.photo=photo);
+      S.tp?.filter(t=>t.photo_file_id===file).forEach(t=>t.photo=photo);
+      if(!$('#ov').hidden&&$('#sheet').classList.contains('take'))drawOp();
+    }catch(_){cloudStatus('Не вдалося завантажити фото · решта даних доступна');}
+    finally{photoJobs.delete(file)}
+  }
+}
+function installCloudEvents(){
+  document.addEventListener('click',e=>{
+    if(e.target.matches?.('[data-name-product]')){e.stopImmediatePropagation();return;}
+    const button=e.target.closest('button,[data-tk]');if(!button)return;
+    const d=button.dataset;
+    if('editProduct'in d||'newProduct'in d){e.preventDefault();e.stopImmediatePropagation();productEditor(d.editProduct||'');return;}
+    if('go'in d||'tk'in d||'save'in d||'rst'in d){
+      e.preventDefault();e.stopImmediatePropagation();
+      if('go'in d)cloudAdd();else if('tk'in d)cloudTake(Number(d.tk));else if('save'in d)cloudCreate(d.save);
+      else if(cloudCanChange()){const p=P.find(p=>String(p.id)===String(d.rst));p.ov=null;recalc(p);updRes(p);render();queueNorm(p)}
+    }
+    // Existing prototype-only mutation paths are never allowed in shared mode.
+    else if('eat'in d||'code'in d){e.preventDefault();e.stopImmediatePropagation();toast('Виберіть конкретну пачку у вікні «Взяти».');}
+  },true);
+  document.addEventListener('input',e=>{
+    const input=e.target;
+    if(input.dataset.nameProduct!==undefined){
+      e.stopImmediatePropagation();const p=P.find(p=>p.id===input.dataset.nameProduct),name=input.value.trim();
+      if(p&&name&&name.length<=100){p.n=name;render();queueNorm(p);}return;
+    }
+    if(input.dataset.ne===undefined)return;
+    e.stopImmediatePropagation();
+    const [id,key]=input.dataset.ne.split('|'),p=P.find(p=>String(p.id)===id);
+    if(!p)return;
+    let value=Number(input.value.replace(',','.'));if(!input.value.trim()||!Number.isFinite(value)||value<0||(key!=='g'&&value===0))return;
+    if(p.u==='шт.'&&(key==='g'||key==='pack'))value*=1000;
+    if(key==='packs'){const n=Math.max(1,Math.round(value));p.ov=n===p.calc?null:n;}else p[key]=value;
+    recalc(p);updRes(p);render();queueNorm(p);
+    if(input.classList.contains('ei'))input.style.width=Math.max(2,input.value.length+1)+'ch';
+  },true);
+  document.addEventListener('focusout',e=>{if(e.target.dataset.ne!==undefined||e.target.dataset.nameProduct!==undefined)flushNorms()});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)cloudRefresh();else flushNorms()});
+  window.addEventListener('online',()=>cloudRefresh());
+  window.addEventListener('offline',()=>{cloudOnline=false;queueStatus()});
+  window.addEventListener('beforeunload',()=>{flushNorms()});
+  setInterval(()=>{if(!document.hidden)cloudRefresh()},30000);
+}
+async function initConnectedState(){
+  P=[];B=[];
+  document.body.insertAdjacentHTML('afterbegin',`<div id="cloudBoot" class="cloud-login" role="status" hidden>Відкриваю комору…</div><section id="cloudLogin" class="cloud-login"><form id="pinForm" class="pin-card"><h1>Моя комора</h1><p>Введіть сімейний PIN для спільних запасів.</p><label for="cloudPin">PIN-код</label><input id="cloudPin" type="password" inputmode="numeric" autocomplete="off" pattern="[0-9]{4}" maxlength="4" required aria-describedby="loginError"><p id="loginError" role="status"></p><button id="loginSubmit" class="pri" type="submit">Увійти</button></form></section>`);
+  $('header .wrap').insertAdjacentHTML('afterbegin',`<div class="sync-bar"><span id="syncText" role="status">Підключення…</span><button id="cloudRefresh">Оновити</button><button id="cloudLogout">Вийти</button></div>`);
+  $('#tools').insertAdjacentHTML('beforeend','<button data-new-product class="new-product">＋ Продукт</button>');
+  cloudSessionVisible(false);installCloudEvents();
+  $('#pinForm').onsubmit=e=>{e.preventDefault();cloudLogin($('#cloudPin').value)};
+  $('#cloudRefresh').onclick=()=>cloudRefresh();$('#cloudLogout').onclick=cloudLogout;
+  loadQueue();
+  restoreSavedSession();
+}
+function restoreSavedSession(){
+  const pin=stored('pin');
+  if(pin){
+    $('#cloudLogin').hidden=true;if($('#cloudBoot'))$('#cloudBoot').hidden=false;
+    try{
+      const cache=JSON.parse(stored('cache')||'null');
+      if(cache){cloudPin=pin;cloudApply(cache,{paint:false});cloudOnline=navigator.onLine!==false;cloudSessionVisible(true);cloudPaint(true);cloudStatus('Оновлюю дані у фоні…');}
+    }catch(_){}
+    cloudLogin(pin,{allowCache:true});
+  }
+}
+
+initLocalState();
