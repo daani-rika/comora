@@ -16,3 +16,4 @@
 
 - html5-qrcode 2.3.8 — Apache-2.0, ліцензія у vendor/.
 - Noto Color Emoji — SIL Open Font License 1.1, ліцензія у fonts/OFL.txt. Шрифт включений локально для роботи офлайн.
+- Пошук товарів — Open Food Facts API v3. Дані: ODbL; фото: CC BY-SA. Джерело показується у результаті пошуку: https://world.openfoodfacts.org/terms-of-use.

@@ -306,3 +306,6 @@ button:disabled,input:disabled{cursor:wait;opacity:.55}
 body{font-family:system-ui,-apple-system,"Segoe UI","Noto Color Emoji",sans-serif}
 .ico,.product-emoji,#productEmoji{font-family:"Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji",sans-serif;font-weight:400;font-synthesis:none}
 @media(max-width:760px){.nrow:not(.nhead){cursor:pointer}.nrow input{cursor:text}.nchev{min-width:24px;min-height:24px;display:inline-flex;align-items:center;justify-content:center}}
+.catalog-photo{display:block;max-width:100%;width:auto;max-height:180px;object-fit:contain;margin:10px auto}
+.catalog-source{font-size:.75rem;color:var(--mut);margin:8px 0}.catalog-source a{color:var(--green)}
+.catalog-error{color:var(--red);font-size:.85rem;min-height:1em}.catalog-norms{width:100%;margin-top:8px}

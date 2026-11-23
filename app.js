@@ -74,13 +74,14 @@ function add(pid,s,n,x,k){
   g?g.q+=n:B.push({p:pid,s,x,q:n,k});
   toast(`Додано ${n} × ${size(s,p.u)} · ${esc(p.n)}`,before);render();
 }
-const close=()=>{$('#ov').hidden=true;S.back=false;stopCam()};
+const close=()=>{if(typeof cancelCatalog==='function')cancelCatalog();$('#ov').hidden=true;S.back=false;stopCam()};
 const show=h=>{$('#sheet').innerHTML=h;$('#sheet').className='sheet';$('#ov').hidden=false};
 
 // ===== аркуш продукту: взяти / додати =====
 let S={};
 const plus=(k,n)=>new Date(new Date(k).getTime()+n*day).toISOString().slice(0,10);
 function opSheet(pid,mode,code){
+  if(typeof cancelCatalog==='function')cancelCatalog();
   const p=P.find(p=>p.id===pid), i=info(p);
   let s=1;if(mode==='take'&&i.bs.length&&!i.bs.some(b=>b.s===1))s=i.bs[0].s;
   if(code){const f=Object.entries(p.codes).find(([,c])=>c===code);if(f)s=+f[0];else if(p.barcodeSizes?.[code])s=p.barcodeSizes[code]}
@@ -260,26 +261,25 @@ async function scanPhoto(file){
 async function lookup(raw){
   const code=String(raw||'').trim();
   if(!/^\d{8,14}$/.test(code)&&!(/^[A-Za-z0-9._-]{4,80}$/.test(code))){toast('Введіть номер штрих-коду');return}
-  await stopCam();
-  if(typeof CLOUD!=='undefined'&&CLOUD&&S.back&&S.mode==='take'&&S.bindTake!==undefined)return cloudBind(code);
-  if(S.back&&S.mode==='take'&&S.bindTake!==undefined){
-    const p=P.find(p=>p.id===S.pid),t=S.tp[S.bindTake];
-    t.code=code;p.codes[t.s]=code;p.barcodeSizes={...p.barcodeSizes,[code]:t.s};
-    B.filter(b=>b.p===p.id&&b.s===t.s&&b.x===t.x).forEach(b=>b.code=code);
-    S.back=false;persistState();return bcSheet(S.bindTake);
-  }
+  // Permission prompts may still be pending: manual lookup must remain usable.
+  stopCam();
+  const context={...S,f:S.f?{...S.f}:undefined,tile:S.tp?.[S.bindTake]};
   for(const p of P){
     const f=Object.entries(p.codes).find(([,c])=>c===code),sz=f?+f[0]:p.barcodeSizes?.[code];
     if(sz){
-      if(S.back&&p.id===S.pid){S.back=false;S.stage='card';S.f={s:sz,n:1,x:'',code,name:pname(p,sz)};return drawOp()}
-      S.back=false;return opSheet(p.id,'add',code);
+      if(context.back&&context.mode==='take'&&context.bindTake!==undefined){
+        if(p.id!==context.pid||sz!==context.tile?.s){toast('Код належить іншому продукту або фасовці.');S.back=false;return bcSheet(context.bindTake)}
+        if(typeof CLOUD!=='undefined'&&CLOUD)return cloudBind(code);
+        context.tile.code=code;S.back=false;persistState();return bcSheet(context.bindTake);
+      }
+      const same=p.id===context.pid;
+      opSheet(p.id,'add',code);
+      if(same&&context.f){S.f.n=context.f.n||1;S.f.x=context.f.x||'';S.f.photo=context.f.photo||'';drawOp()}
+      if(context.pid&&!same)toast('За штрих-кодом: '+esc(p.n));
+      return;
     }
   }
-  if(S.back){const p=P.find(p=>p.id===S.pid);S.back=false;const prior=S.f;S.stage='card';S.f={s:prior?.s||1,n:prior?.n||1,x:prior?.x||'',photo:prior?.photo,code,name:prior?.name||pname(p,1)};return drawOp()}
-  show(`<div class="row"><h2>Невідомий код</h2><button data-close style="border:0">✕</button></div>
-  <p class="bcn">${esc(code)}</p>
-  <button class="pri" style="width:100%;margin-bottom:10px" data-create="${esc(code)}">＋ Новий продукт</button>
-  <div class="lbl">Наявні продукти</div><div class="plist">${P.map(p=>`<button data-link="${p.id}|${esc(code)}"><span class="product-emoji">${productEmoji(p)}</span>${esc(p.n)}</button>`).join('')}</div>`);
+  return catalogLookup(code,context);
 }
 async function attachPhoto(file){
   if(!S.f||!file)return;
@@ -433,8 +433,131 @@ async function initLocalState(){
   storageReady=true;render();
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
-if('serviceWorker' in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('./sw.js').catch(()=>{});
+if('serviceWorker' in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).catch(()=>{});
 
+
+// Public product lookup. No pantry data, PIN or package photos are sent to OFF.
+const catalogCache=new Map();
+let catalogSequence=0,catalogController=null,catalogContext=null,catalogCurrent=null;
+const CATALOG_FIELDS='code,product_name,product_name_uk,product_name_en,generic_name,generic_name_uk,brands,quantity,product_quantity,product_quantity_unit,image_front_small_url,image_front_url';
+function catalogText(value,max=200){return typeof value==='string'?value.replace(/[\u0000-\u001f]/g,' ').trim().slice(0,max):''}
+function catalogQuantity(product){
+  const units={g:['kg',.001],kg:['kg',1],mg:['kg',.000001],ml:['l',.001],cl:['l',.01],l:['l',1],'г':['kg',.001],'кг':['kg',1],'мл':['l',.001],'л':['l',1],'шт':['pcs',1],pcs:['pcs',1]};
+  let value=Number(String(product.product_quantity??'').replace(',','.')),unit=String(product.product_quantity_unit||'').toLowerCase();
+  if(!(value>0)||!units[unit]){
+    const match=catalogText(product.quantity).toLowerCase().replace(/℮/g,'').trim().match(/^(?:(\d+)\s*[x×*]\s*)?(\d+(?:[.,]\d+)?)\s*(kg|g|mg|ml|cl|l|кг|г|мл|л|шт\.?|pcs)\s*$/);
+    if(!match)return null;
+    value=Number(match[2].replace(',','.'))*Number(match[1]||1);unit=match[3].replace('.','');
+  }
+  if(!units[unit])return null;
+  const weight=Math.round(value*units[unit][1]*1e6)/1e6;
+  return weight>0&&weight<=1000000?{weight,unit:units[unit][0]}:null;
+}
+function safeCatalogImage(raw){
+  try{const url=new URL(raw);return url.protocol==='https:'&&['images.openfoodfacts.org','static.openfoodfacts.org'].includes(url.hostname)?url.href:''}catch(_){return ''}
+}
+function normalizeCatalog(product,code){
+  if(!product||typeof product!=='object')return null;
+  const name=catalogText(product.product_name_uk||product.generic_name_uk||product.product_name||product.product_name_en||product.generic_name);
+  if(!name)return null;
+  return {code,name,brands:catalogText(product.brands,100),quantity:catalogText(product.quantity,80),size:catalogQuantity(product),image:safeCatalogImage(product.image_front_small_url||product.image_front_url),source:'https://world.openfoodfacts.org/product/'+encodeURIComponent(code)};
+}
+function cancelCatalog(){catalogSequence++;catalogController?.abort();catalogController=null;}
+async function findCatalog(code){
+  if(!/^\d{8,14}$/.test(code))return null;
+  const key='komora-off-v1:'+code,now=Date.now();
+  let cached=catalogCache.get(code);
+  if(!cached){try{cached=JSON.parse(localStorage.getItem(key)||'null')}catch(_){}}
+  if(cached&&cached.until>now)return cached.result;
+  // Direct browser reads: stay below OFF's product-read limit, also across tabs.
+  let recent=[];try{recent=JSON.parse(localStorage.getItem('komora-off-reads')||'[]')}catch(_){}
+  recent=Array.isArray(recent)?recent.filter(t=>Number.isFinite(t)&&now-t<60000):[];
+  if(recent.length>=10||(recent.length&&now-recent.at(-1)<4000))throw Error('RATE');
+  try{localStorage.setItem('komora-off-reads',JSON.stringify([...recent,now]))}catch(_){}
+  catalogController=new AbortController();const controller=catalogController,timer=setTimeout(()=>controller.abort(),9000);
+  const url=new URL('https://world.openfoodfacts.org/api/v3/product/'+encodeURIComponent(code)+'.json');
+  url.searchParams.set('fields',CATALOG_FIELDS);url.searchParams.set('lc','uk');
+  url.searchParams.set('User-Agent','Komora/1.0 (https://daani-rika.github.io/comora/)');
+  try{
+    const response=await fetch(url.href,{method:'GET',credentials:'omit',referrerPolicy:'no-referrer',signal:controller.signal});
+    if(response.status===429||response.status===503)throw Error('RATE');
+    if(!response.ok&&response.status!==404)throw Error('NETWORK');
+    const data=await response.json();
+    if(data.status==='failure'&&response.status!==404)throw Error('NETWORK');
+    const result=response.status===404||data.status===0?null:normalizeCatalog(data.product,code);
+    cached={until:now+(result?86400000:300000),result};catalogCache.set(code,cached);
+    try{localStorage.setItem(key,JSON.stringify(cached))}catch(_){}
+    return result;
+  }finally{clearTimeout(timer);if(catalogController===controller)catalogController=null;}
+}
+function catalogUnit(p){return ({'кг':'kg','л':'l','шт.':'pcs'})[p.u]||'kg'}
+function suggestedCatalogProduct(result){
+  if(!result)return '';
+  const normalized=text=>text.toLocaleLowerCase('uk').replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+  const title=' '+normalized(result.name)+' ';
+  const matches=P.filter(p=>title.includes(' '+normalized(p.n)+' ')&&(!result.size||catalogUnit(p)===result.size.unit));
+  return matches.length===1?String(matches[0].id):'';
+}
+async function catalogLookup(code,context){
+  cancelCatalog();const token=catalogSequence;catalogContext=context;
+  show(`<div class="row"><h2>Шукаю товар…</h2><button data-close aria-label="Закрити">✕</button></div><p class="bcn">${esc(code)}</p><button id="catalogManual" style="width:100%">Вибрати вручну</button>`);
+  $('#catalogManual').onclick=()=>{cancelCatalog();showCatalogChoice(code,null,'manual')};
+  try{const result=await findCatalog(code);if(token!==catalogSequence||$('#ov').hidden)return;showCatalogChoice(code,result,result?'found':'missing')}
+  catch(error){if(token!==catalogSequence||$('#ov').hidden)return;showCatalogChoice(code,null,error.message==='RATE'?'rate':'offline')}
+}
+function showCatalogChoice(code,result,state){
+  catalogCurrent=result;
+  const context=catalogContext||{},suggested=suggestedCatalogProduct(result);
+  const heading={found:'Знайдено товар',missing:'Код не знайдено',offline:'Каталог недоступний',rate:'Пошук тимчасово обмежено',manual:'Новий штрих-код'}[state];
+  show(`<form id="catalogForm"><div class="row"><h2>${heading}</h2><button type="button" data-close aria-label="Закрити">✕</button></div>
+  <p class="bcn">${esc(code)}</p>
+  ${result?.image?`<img class="catalog-photo" src="${esc(result.image)}" alt="Упаковка з каталогу" referrerpolicy="no-referrer">`:''}
+  ${result?`<div class="catalog-source"><a href="${esc(result.source)}" target="_blank" rel="noopener noreferrer">Open Food Facts</a>${result.brands?` · ${esc(result.brands)}`:''}${result.image?' · <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener noreferrer">Фото CC BY-SA</a>':''}</div>`:''}
+  <label class="editor-field">Продукт у коморі<select id="catalogProduct" required><option value="">Оберіть продукт</option>${P.slice().sort((a,b)=>a.n.localeCompare(b.n,'uk')).map(p=>`<option value="${esc(p.id)}" ${String(p.id)===suggested?'selected':''}>${esc(p.n)}</option>`).join('')}</select></label>
+  <label class="editor-field">Назва на упаковці<input id="catalogName" maxlength="200" value="${esc(result?.name||'')}" placeholder="Назва продукту"></label>
+  <div class="two"><label class="editor-field">Вага / об’єм пачки<input id="catalogWeight" inputmode="decimal" required value="${result?.size?.weight||''}" placeholder="${esc(result?.quantity||'Наприклад, 0,9')}"></label>
+  <label class="editor-field">Одиниця<select id="catalogUnit">${[['kg','Кілограми'],['l','Літри'],['pcs','Штуки']].map(([u,t])=>`<option value="${u}" ${u===(result?.size?.unit||'kg')?'selected':''}>${t}</option>`).join('')}</select></label></div>
+  <p id="catalogError" class="catalog-error" role="status"></p>
+  <button class="pri" id="catalogConfirm" type="submit" style="width:100%">${context.mode==='take'?'Прив’язати код':'Підтвердити товар'}</button>
+  <button id="catalogNorms" type="button" class="catalog-norms">Норми та розрахунки</button></form>`);
+  $('#catalogProduct').onchange=()=>{
+    const p=P.find(p=>String(p.id)===$('#catalogProduct').value);if(!p)return;
+    if(!$('#catalogName').value.trim())$('#catalogName').value=p.n;
+    if(!result?.size)$('#catalogUnit').value=catalogUnit(p);
+    $('#catalogError').textContent='';
+  };
+  $('#catalogNorms').onclick=()=>{cancelCatalog();close();if(typeof setActiveTab==='function')setActiveTab('n');else document.querySelector('[data-tab="n"]').click()};
+  $('#catalogForm').onsubmit=e=>{e.preventDefault();confirmCatalog(code,result,context)};
+}
+async function catalogPhoto(result){
+  if(!result?.image)return '';
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),7000);
+  let url;
+  try{
+    const response=await fetch(result.image,{credentials:'omit',referrerPolicy:'no-referrer',signal:controller.signal});
+    if(!response.ok)throw Error('image');const blob=await response.blob();if(blob.size>4*1024*1024)throw Error('image');
+    url=URL.createObjectURL(blob);const image=new Image();image.src=url;await image.decode();return compactPhoto(image);
+  }catch(_){return ''}finally{clearTimeout(timer);if(url)URL.revokeObjectURL(url)}
+}
+async function confirmCatalog(code,result,context){
+  const p=P.find(p=>String(p.id)===$('#catalogProduct').value),weight=Number($('#catalogWeight').value.replace(',','.')),unit=$('#catalogUnit').value;
+  if(!p||!(weight>0)||weight>1000000){$('#catalogError').textContent='Оберіть продукт і вкажіть вагу пачки.';return}
+  if(catalogUnit(p)!==unit){$('#catalogError').textContent='Одиниця має збігатися з продуктом у коморі.';return}
+  if(context.mode==='take'&&(p.id!==context.pid||weight!==context.tile?.s)){$('#catalogError').textContent='Цей товар не відповідає обраній пачці.';return}
+  const name=$('#catalogName').value.trim()||p.n,token=catalogSequence,form=$('#catalogForm');
+  $('#catalogConfirm').disabled=true;
+  const same=p.id===context.pid,photo=same&&context.f?.photo?context.f.photo:await catalogPhoto(result);
+  if(token!==catalogSequence||$('#ov').hidden||$('#catalogForm')!==form)return;
+  if(context.mode==='take'){
+    S=context;S.back=true;
+    if(typeof CLOUD!=='undefined'&&CLOUD)await cloudBind(code);
+    else{S.tp[S.bindTake].code=code;p.codes[weight]=code;p.barcodeSizes={...p.barcodeSizes,[code]:weight};persistState();S.back=false;bcSheet(S.bindTake)}
+    return;
+  }
+  opSheet(p.id,'add');
+  S.stage='card';S.f={s:weight,n:same?(context.f?.n||1):1,x:same?(context.f?.x||''):'',code,name,photo,catalogSource:result?.source||''};
+  drawOp();
+}
 
 const WEB_APP_URL='https://script.google.com/macros/s/AKfycbynGGRQY2DmrbHzpX77Is_bftrgM6rrZa7o8Dbcbyyi7OHWYXl_lwp-yyNR7mB-LYr_sQ/exec';
 const CLOUD=!new URLSearchParams(location.search).has('demo');
@@ -444,11 +567,34 @@ let normTimer,undoTimer,retryTimer,cloudAuthenticating=false;
 let cloudQueue=[];
 const queuedOptions=new Map(),recentOperations=new Map();
 const normDrafts=new Map(),cloudPhotos=new Map(),photoJobs=new Map();
+const uiPrefs=readUiPrefs();
+let uiRestored=false,uiScrollTimer;
 function resolveProductId(id){return P.find(p=>String(p.id)===String(id))?.id??id}
 function stored(key){try{return localStorage.getItem(CLOUD_KEY+key)}catch(_){return null}}
 function storeValue(key,value){localStorage.setItem(CLOUD_KEY+key,value)}
 function forget(key){try{localStorage.removeItem(CLOUD_KEY+key)}catch(_){}}
-function cloudStatus(message){const el=$('#syncText');if(el)el.textContent=message;const button=$('#cloudRefresh');if(button)button.textContent=cloudPending?'Синхронізувати':'Оновити';}
+function cloudStatus(message){const el=$('#syncText');if(el)el.textContent=message;}
+function readUiPrefs(){
+  let value;try{value=JSON.parse(stored('ui')||'null')}catch(_){}
+  return {tab:value?.tab==='n'?'n':'p',expanded:Array.isArray(value?.expanded)?value.expanded.filter(x=>typeof x==='string'):[],query:typeof value?.query==='string'?value.query:'',filter:['all','low','excess'].includes(value?.filter)?value.filter:'all',scroll:value?.scroll&&typeof value.scroll==='object'?value.scroll:{}};
+}
+function saveUiPrefs(){try{storeValue('ui',JSON.stringify(uiPrefs))}catch(_){}}
+function rememberExpandedRows(){uiPrefs.expanded=[...document.querySelectorAll('.nrow.open [data-nx]')].map(el=>String(el.dataset.nx));saveUiPrefs();}
+function restoreExpandedRows(){
+  if(typeof CLOUD==='undefined'||!CLOUD)return;
+  document.querySelectorAll('.nrow:not(.nhead)').forEach(row=>{const id=row.querySelector('[data-nx]')?.dataset.nx;row.classList.toggle('open',uiPrefs.expanded.includes(String(id)));});
+}
+function setActiveTab(tab,{remember=true,restoreScroll=true}={}){
+  tab=tab==='n'?'n':'p';
+  if(remember){uiPrefs.scroll[uiPrefs.tab]=window.scrollY;uiPrefs.tab=tab;saveUiPrefs();}
+  document.querySelectorAll('.tabs button').forEach(button=>{if(button.dataset.tab===tab)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current')});
+  const norms=tab==='n';$('#list').hidden=norms;$('#tools').hidden=norms;$('#bScan').hidden=norms;$('#norms').hidden=!norms;
+  if(norms){renderNorms();restoreExpandedRows();}
+  if(restoreScroll)requestAnimationFrame(()=>window.scrollTo(0,Math.max(0,Number(uiPrefs.scroll[tab])||0)));
+}
+function restoreSavedUi(){
+  $('#q').value=uiPrefs.query;filter=uiPrefs.filter;setActiveTab(uiPrefs.tab,{remember:false});uiRestored=true;
+}
 function cloudControls(){
   document.querySelectorAll('[data-go],[data-save],[data-ne],[data-rst]').forEach(el=>el.disabled=false);
   if($('#cloudLogout'))$('#cloudLogout').disabled=false;
@@ -520,8 +666,7 @@ function cloudApply(reply,{keepTake=false,paint=true}={}){
 function cloudPaint(keepTake=false){
   render();
   if(!$('#norms').hidden&&!document.activeElement?.closest?.('#norms')){
-    const expanded=[...document.querySelectorAll('.nrow.open [data-nx]')].map(x=>x.dataset.nx);
-    renderNorms();expanded.forEach(id=>document.querySelector(`[data-nx="${CSS.escape(id)}"]`)?.closest('.nrow').classList.add('open'));
+    renderNorms();restoreExpandedRows();
   }
   if(!$('#ov').hidden&&S.pid&&P.some(p=>p.id===S.pid)&&$('#sheet').classList.contains('take')){
     if(!keepTake)S.tp=null;drawOp();cloudLoadPhotos();
@@ -532,6 +677,7 @@ function cloudSessionVisible(visible){
   $('#cloudLogin').hidden=visible;
   if($('#cloudBoot'))$('#cloudBoot').hidden=true;
   for(const selector of ['header','main','#bScan'])$(selector).hidden=!visible;
+  if(visible&&!uiRestored)restoreSavedUi();
   if(visible)$('#bScan').hidden=!$('#norms').hidden;
 }
 function cloudLoginMessage(message){$('#loginError').textContent=message;}
@@ -642,7 +788,7 @@ async function cloudSendPending(){
 }
 function cloudLogout(){
   flushNorms();++cloudEpoch;cloudBusy=false;cloudAuthenticating=false;clearTimeout(retryTimer);forget('pin');cloudPin='';cloudOnline=false;cloudLast=null;cloudRevision=-1;
-  P=[];B=[];cloudPhotos.clear();close();cloudSessionVisible(false);$('#cloudPin').value='';cloudLoginMessage('');
+  P=[];B=[];uiRestored=false;cloudPhotos.clear();close();cloudSessionVisible(false);$('#cloudPin').value='';cloudLoginMessage('');
 }
 function settingsPayload(p){return {action:'product_settings',product_id:p.id,name:p.n,emoji:p.e,unit:({'кг':'kg','л':'l','шт.':'pcs'})[p.u],monthly_usage_kg:p.g/1000,people_count:p.people,target_months:p.months,default_pack_weight:p.pack/1000,default_shelf_life_days:p.life,norm_packs_override:p.ov||null};}
 function productEditor(id){
@@ -721,10 +867,12 @@ function installCloudEvents(){
     if(e.target.matches?.('[data-name-product]')){e.stopImmediatePropagation();return;}
     const normRow=e.target.closest('.nrow:not(.nhead)');
     if(normRow&&matchMedia('(max-width:760px)').matches&&!e.target.closest('input,select,textarea,button,a,label')){
-      normRow.classList.toggle('open');e.stopImmediatePropagation();return;
+      normRow.classList.toggle('open');rememberExpandedRows();e.stopImmediatePropagation();return;
     }
     const button=e.target.closest('button,[data-tk]');if(!button)return;
     const d=button.dataset;
+    if(d.tab){e.preventDefault();e.stopImmediatePropagation();setActiveTab(d.tab);return;}
+    if(d.f){e.preventDefault();e.stopImmediatePropagation();filter=d.f;uiPrefs.filter=d.f;saveUiPrefs();render();return;}
     if('editProduct'in d||'newProduct'in d){e.preventDefault();e.stopImmediatePropagation();productEditor(d.editProduct||'');return;}
     if('go'in d||'tk'in d||'save'in d||'rst'in d){
       e.preventDefault();e.stopImmediatePropagation();
@@ -751,20 +899,21 @@ function installCloudEvents(){
     if(input.classList.contains('ei'))input.style.width=Math.max(2,input.value.length+1)+'ch';
   },true);
   document.addEventListener('focusout',e=>{if(e.target.dataset.ne!==undefined||e.target.dataset.nameProduct!==undefined)flushNorms()});
+  $('#q').addEventListener('input',()=>{uiPrefs.query=$('#q').value;saveUiPrefs();});
+  window.addEventListener('scroll',()=>{clearTimeout(uiScrollTimer);uiScrollTimer=setTimeout(()=>{uiPrefs.scroll[uiPrefs.tab]=window.scrollY;saveUiPrefs();},120)},{passive:true});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)cloudRefresh();else flushNorms()});
   window.addEventListener('online',()=>cloudRefresh());
   window.addEventListener('offline',()=>{cloudOnline=false;queueStatus()});
-  window.addEventListener('beforeunload',()=>{flushNorms()});
+  window.addEventListener('beforeunload',()=>{uiPrefs.scroll[uiPrefs.tab]=window.scrollY;saveUiPrefs();flushNorms()});
   setInterval(()=>{if(!document.hidden)cloudRefresh()},30000);
 }
 async function initConnectedState(){
   P=[];B=[];
   document.body.insertAdjacentHTML('afterbegin',`<div id="cloudBoot" class="cloud-login" role="status" hidden>Відкриваю комору…</div><section id="cloudLogin" class="cloud-login"><form id="pinForm" class="pin-card"><h1>Моя комора</h1><label for="cloudPin">PIN-код</label><input id="cloudPin" type="password" inputmode="numeric" autocomplete="off" pattern="[0-9]{4}" maxlength="4" required aria-describedby="loginError"><p id="loginError" role="status"></p><button id="loginSubmit" class="pri" type="submit">Увійти</button></form></section>`);
-  $('header .wrap').insertAdjacentHTML('afterbegin',`<div class="sync-bar"><span id="syncText" role="status">Підключення…</span><button id="cloudRefresh">Оновити</button><button id="cloudLogout">Вийти</button></div>`);
-  $('#tools').insertAdjacentHTML('beforeend','<button data-new-product class="new-product">＋ Продукт</button>');
+  $('header .wrap').insertAdjacentHTML('afterbegin',`<div class="sync-bar"><span id="syncText" role="status">Підключення…</span><button id="cloudLogout">Вийти</button></div>`);
   cloudSessionVisible(false);installCloudEvents();
   $('#pinForm').onsubmit=e=>{e.preventDefault();cloudLogin($('#cloudPin').value)};
-  $('#cloudRefresh').onclick=()=>cloudRefresh();$('#cloudLogout').onclick=cloudLogout;
+  $('#cloudLogout').onclick=cloudLogout;
   loadQueue();
   restoreSavedSession();
 }
