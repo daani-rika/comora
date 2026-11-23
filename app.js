@@ -277,9 +277,9 @@ async function lookup(raw){
   }
   if(S.back){const p=P.find(p=>p.id===S.pid);S.back=false;const prior=S.f;S.stage='card';S.f={s:prior?.s||1,n:prior?.n||1,x:prior?.x||'',photo:prior?.photo,code,name:prior?.name||pname(p,1)};return drawOp()}
   show(`<div class="row"><h2>Невідомий код</h2><button data-close style="border:0">✕</button></div>
-  <p class="note">Коду ${esc(code)} ще немає в базі. Створіть новий продукт або прив’яжіть код до наявного.</p>
+  <p class="bcn">${esc(code)}</p>
   <button class="pri" style="width:100%;margin-bottom:10px" data-create="${esc(code)}">＋ Новий продукт</button>
-  <div class="lbl">Або це інша фасовка вже наявного:</div><div class="plist">${P.map(p=>`<button data-link="${p.id}|${esc(code)}"><span class="product-emoji">${productEmoji(p)}</span>${esc(p.n)}</button>`).join('')}</div>`);
+  <div class="lbl">Наявні продукти</div><div class="plist">${P.map(p=>`<button data-link="${p.id}|${esc(code)}"><span class="product-emoji">${productEmoji(p)}</span>${esc(p.n)}</button>`).join('')}</div>`);
 }
 async function attachPhoto(file){
   if(!S.f||!file)return;
@@ -328,7 +328,7 @@ function createSheet(code){
   <div class="lbl">Назва</div><input id="nn" placeholder="напр. Пшоно">
   <label class="lbl" for="nu">Одиниця</label><select id="nu"><option value="kg">Кілограми</option><option value="l">Літри</option><option value="pcs">Штуки</option></select><div class="lbl">Розмір пачки в обраній одиниці</div><input id="ns" inputmode="decimal" value="1">
   <div class="lbl">Цільова норма, кг або л</div><input id="nm" inputmode="decimal" value="2">
-  <div class="note">Витрату на місяць і строк можна налаштувати пізніше.</div>
+  
   <button class="pri" style="width:100%;min-height:54px" data-save="${code}">Створити і додати пачку</button>`);
 }
 
@@ -388,7 +388,7 @@ document.addEventListener('change',e=>{
 });
 const NF=(n,d=1)=>String(+(+n).toFixed(d)).replace('.',',');
 const FL=[['g','На 1 особу за місяць'],['people','Осіб'],['months','Запас на, міс.'],['life','Придатне, днів'],['pack','Пачка']];
-function rsHtml(p){const u=p.u;return (p.ov?`<button class="lnk2" data-rst="${p.id}" aria-label="Скинути до розрахунку: ${p.calc}">↺ ${p.calc}</button>`:`≈ ${NF(p.target,2)} ${u}`)+(p.capped?`<div class="warn">Запас більший за строк придатності: враховано ${p.life} дн.</div>`:'')}
+function rsHtml(p){const u=p.u;return (p.ov?`<button class="lnk2" data-rst="${p.id}" aria-label="Скинути до розрахунку: ${p.calc}">↺ ${p.calc}</button>`:`≈ ${NF(p.target,2)} ${u}`)}
 function updRes(p){const r=$('#res'+p.id);if(!r)return;const ep=r.querySelector('.ep');if(document.activeElement!==ep)ep.value=p.normP;ep.classList.toggle('man',!!p.ov);r.querySelector('.rr span').textContent=pk(p.normP);r.querySelector('.rs').innerHTML=rsHtml(p)}
 function renderNorms(){
   const un=p=>p.u==='шт.'?'шт.':p.u==='л'?'мл':'г';
@@ -653,9 +653,7 @@ function productEditor(id){
   <label class="editor-field">Назва<input id="productName" required maxlength="100" value="${esc(p?.n||'')}" placeholder="Наприклад, Олія соняшникова"></label>
   <div class="two"><label class="editor-field">Емодзі<input id="productEmoji" maxlength="16" required value="${esc(p?.e||'📦')}"></label>
   <label class="editor-field">Одиниця<select id="productUnit" ${hasStock?'disabled':''}>${[['kg','Кілограми'],['l','Літри'],['pcs','Штуки']].map(([v,t])=>`<option value="${v}" ${unit===v?'selected':''}>${t}</option>`).join('')}</select></label></div>
-  ${hasStock?'<p class="sub">Одиницю можна змінити, коли немає пачок. Назву та емодзі — будь-коли.</p>':''}
   <label class="editor-field">Типова фасовка, кг / л / шт.<input id="productPack" type="number" inputmode="decimal" min="0.000001" step="any" value="${p?p.pack/1000:1}" required></label>
-  <p class="sub">Кількість людей, витрату та цільовий запас можна налаштувати у «Норми та розрахунки».</p>
   <button class="pri" type="submit" style="width:100%">${p?'Зберегти зміни':'Додати продукт'}</button></form>`);
   $('#productForm').onsubmit=async e=>{
     e.preventDefault();if(!cloudCanChange())return;
@@ -721,6 +719,10 @@ async function cloudLoadPhotos(){
 function installCloudEvents(){
   document.addEventListener('click',e=>{
     if(e.target.matches?.('[data-name-product]')){e.stopImmediatePropagation();return;}
+    const normRow=e.target.closest('.nrow:not(.nhead)');
+    if(normRow&&matchMedia('(max-width:760px)').matches&&!e.target.closest('input,select,textarea,button,a,label')){
+      normRow.classList.toggle('open');e.stopImmediatePropagation();return;
+    }
     const button=e.target.closest('button,[data-tk]');if(!button)return;
     const d=button.dataset;
     if('editProduct'in d||'newProduct'in d){e.preventDefault();e.stopImmediatePropagation();productEditor(d.editProduct||'');return;}
@@ -757,7 +759,7 @@ function installCloudEvents(){
 }
 async function initConnectedState(){
   P=[];B=[];
-  document.body.insertAdjacentHTML('afterbegin',`<div id="cloudBoot" class="cloud-login" role="status" hidden>Відкриваю комору…</div><section id="cloudLogin" class="cloud-login"><form id="pinForm" class="pin-card"><h1>Моя комора</h1><p>Введіть сімейний PIN для спільних запасів.</p><label for="cloudPin">PIN-код</label><input id="cloudPin" type="password" inputmode="numeric" autocomplete="off" pattern="[0-9]{4}" maxlength="4" required aria-describedby="loginError"><p id="loginError" role="status"></p><button id="loginSubmit" class="pri" type="submit">Увійти</button></form></section>`);
+  document.body.insertAdjacentHTML('afterbegin',`<div id="cloudBoot" class="cloud-login" role="status" hidden>Відкриваю комору…</div><section id="cloudLogin" class="cloud-login"><form id="pinForm" class="pin-card"><h1>Моя комора</h1><label for="cloudPin">PIN-код</label><input id="cloudPin" type="password" inputmode="numeric" autocomplete="off" pattern="[0-9]{4}" maxlength="4" required aria-describedby="loginError"><p id="loginError" role="status"></p><button id="loginSubmit" class="pri" type="submit">Увійти</button></form></section>`);
   $('header .wrap').insertAdjacentHTML('afterbegin',`<div class="sync-bar"><span id="syncText" role="status">Підключення…</span><button id="cloudRefresh">Оновити</button><button id="cloudLogout">Вийти</button></div>`);
   $('#tools').insertAdjacentHTML('beforeend','<button data-new-product class="new-product">＋ Продукт</button>');
   cloudSessionVisible(false);installCloudEvents();

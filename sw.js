@@ -1,4 +1,4 @@
-const CACHE = 'komora-shell-v18';
+const CACHE = 'komora-shell-v19';
 const SHELL = ['./','./index.html','./style.css','./app.js','./vendor/html5-qrcode.min.js','./manifest.json','./icons/icon.svg','./icons/icon-192.png','./icons/icon-512.png','./icons/maskable-512.png','./fonts/noto-color-emoji.css',...Array.from({length:11},(_,i)=>'./fonts/noto-color-emoji-'+i+'.woff2')];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('komora-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
