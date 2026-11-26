@@ -279,6 +279,71 @@ button,input,.tools input{border-radius:6px}
 .nchev{display:none;color:var(--mut);font-size:.9rem;margin-left:4px}
 @media(max-width:760px){.nrow:not(.open) .nf{display:none}.nrow{padding:12px 14px;gap:10px 8px}.nhd{cursor:pointer}.nchev{display:inline-block;transition:transform .15s}.nrow.open .nchev{transform:rotate(180deg)}}
 @media(max-width:760px){.rw{min-width:3.4em;text-align:left;align-items:flex-start}.rw .lnk2{text-align:left}}
+.chm{flex:1;min-width:0}
+.chr{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.sup{font-size:.8rem;color:var(--mut);white-space:nowrap}
+.loc{font-size:.8rem;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.sep{width:1px;background:var(--line);align-self:stretch;margin:6px 2px;flex:none}
+.pc .lc{position:absolute;top:8px;right:8px;z-index:2;background:#000a;color:#fff;font-size:.68rem;font-weight:700;padding:2px 6px;border-radius:4px;max-width:calc(100% - 52px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(min-width:700px){.pgrid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}.pc{aspect-ratio:3/4;padding:10px}.pn{font-size:.9rem;-webkit-line-clamp:3}.pm{font-size:.85rem}.pc .bc{top:8px;left:8px;width:32px;height:32px}}
+.locrow{margin-top:12px}.lbl2{font-size:.8rem;color:var(--mut);font-weight:650;margin-bottom:6px}
+.lchips{display:flex;gap:6px;flex-wrap:wrap}.lchips button{min-height:38px;padding:0 12px;font-size:.9rem}
+.lchips button[aria-pressed=true]{border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc);background:var(--chip)}
+.sel,.esel{width:100%;min-height:46px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);font:inherit;padding:0 8px}
+.esel{min-height:40px}
+@media(min-width:761px){.nrow{grid-template-columns:minmax(110px,1.1fr) 1fr 1.3fr .6fr 1fr 1fr 1fr 1.6fr}}
+@media(max-width:760px){.nf-cat{order:6;grid-column:1/-1}}
+.chr{flex-wrap:wrap}.sup{margin-left:auto}
+.lchips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.lchips button{flex:none}
+.card .ico{width:44px;height:44px;font-size:1.6rem}.ch{gap:10px}.card .nm{font-size:1.1rem}.sup{font-size:.75rem}
+.ac3.col{flex-direction:column;gap:10px}
+.rowbs{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.frow{display:flex;align-items:center;gap:8px}
+.fl{flex:none;width:84px;font-size:.8rem;color:var(--mut);font-weight:650}
+.msel{flex:1.4;min-width:0;min-height:44px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);font:inherit;padding:0 8px}
+.ysel{flex:1}
+.frow .lchips{flex:1;min-width:0}
+.chips b{font-weight:300;margin-left:6px}
+@media(max-width:760px){.chips{flex-wrap:wrap;overflow:visible}.chips button{min-height:36px;padding:0 10px;font-size:.85rem}.sep{flex-basis:100%;height:0;width:auto;margin:-8px 0 0;background:none}}
+.wsw{position:relative;display:inline-flex;align-items:center}
+.wsel{appearance:none;-webkit-appearance:none;border:0;background:transparent;font:inherit;font-size:2rem;font-weight:800;color:var(--ink);padding:0 22px 0 0;min-height:44px;cursor:pointer;border-radius:0;width:auto}
+.wsw small{position:absolute;right:2px;pointer-events:none;color:var(--mut);font-size:.9rem}
+/* Add form: consistent spacing and mobile touch targets */
+.sheet.add .top3{align-items:center;gap:12px}
+.sheet.add .top3 .ib{flex:none;gap:10px}
+.sheet.add .ib .ibtn{width:56px;height:56px;min-height:56px;border-radius:8px}
+.sheet.add .ib .ibtn svg{width:30px;height:30px}
+.sheet.add .ib [data-close]{width:44px;height:44px;min-height:44px}
+.sheet.add .ac3.col{padding:14px;gap:14px}
+.sheet.add .rowbs{gap:12px;margin-bottom:4px}
+.sheet.add .frow{gap:10px;min-width:0}
+.sheet.add .frow + .frow{margin-top:2px}
+.sheet.add .fl{width:84px}
+.sheet.add .wsw{display:inline-flex;position:relative;align-items:center;gap:8px;min-width:0;max-width:100%;min-height:48px;padding:0 10px;flex:0 1 auto;border-radius:6px}
+.sheet.add .wvalue{font-size:2rem;font-weight:800;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.sheet.add .wsel{position:absolute;inset:0;width:100%;height:100%;min-height:48px;font-size:16px;font-weight:400;padding:0 10px;color:transparent;background:transparent;cursor:pointer;z-index:1}
+.sheet.add .wsel option{font-size:16px;font-weight:400;color:var(--ink);background:var(--card)}
+.sheet.add .wsw small{position:static;flex:none;font-size:1rem;line-height:1;pointer-events:none}
+.sheet.add .wsw:focus-within{outline:2px solid var(--green);outline-offset:1px}
+@media(max-width:380px){.sheet.add .wsw{padding:0 6px;gap:6px}.sheet.add .rowbs{gap:8px}}
+.sheet.add .msel{appearance:none;-webkit-appearance:none;padding:0 30px 0 10px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23788880' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;background-size:14px;min-width:0}
+.sheet.add .stp{flex:none}
+.sheet.add .stp button{width:46px}
+.sheet.add .locedit{margin:0 0 0 94px;gap:8px}
+.sheet.add .locedit input{min-width:0}
+.sheet.add .locedit button{flex:none;padding:0 12px}
+@media(max-width:380px){.sheet.add .ac3.col{padding:10px}.sheet.add .frow{gap:8px}.sheet.add .fl{width:72px}.sheet.add .msel{padding-left:8px;padding-right:24px;background-position:right 6px center}.sheet.add .locedit{margin-left:80px}.sheet.add .stp button{width:44px}.sheet.add .stp output{width:38px}}
+
+.esel{appearance:none;-webkit-appearance:none;padding:0 30px 0 10px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23788880' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;background-size:14px;min-width:0}
+.card{grid-template-columns:minmax(0,1fr) 74px}
+.card .nm,.nname{letter-spacing:-.025em}
+.card .nm{overflow-wrap:normal}
+.sheet.add .wvalue{letter-spacing:-.035em}
+.sheet.add .rowbs .tools input{min-width:0}
+.sheet.add .top3 h2{min-width:0;letter-spacing:-.025em}
+.catnew{display:flex;gap:6px;margin-top:6px}.catnew input{min-width:0;flex:1;min-height:40px;padding:0 8px}.catnew button{min-height:40px;padding:0 10px;flex:none}
+@media(max-width:760px){.nrow{grid-template-columns:repeat(3,minmax(0,1fr))}.nhd{display:flex;gap:8px}.nname{flex:1;min-width:0;letter-spacing:-.035em}.nres{flex:none}.nchev{display:grid;place-items:center;flex:none;width:20px;height:44px;margin:0}.nrow .esel{min-height:44px}}
+@media(max-width:380px){.sheet.add .wsw{padding:0;gap:5px}.sheet.add .stp button{width:40px}.sheet.add .stp output{width:34px}.nname{letter-spacing:-.055em}.card .nm{letter-spacing:-.04em}}
 
 /* Camera integration, matching the supplied controls. */
 .cam{height:auto;min-height:170px;display:block}
@@ -302,10 +367,12 @@ button:disabled,input:disabled{cursor:wait;opacity:.55}
 .product-name-input{display:inline-block;width:calc(100% - 36px);min-width:70px;min-height:32px;border:1px solid transparent;border-radius:5px;padding:2px 3px;font:inherit;font-weight:inherit;background:transparent;color:var(--ink)}
 .product-name-input:hover{border-color:var(--line)}.product-name-input:focus{border-color:var(--green);outline:1px solid var(--green)}
 .nname{display:flex;align-items:center;gap:4px;min-width:0;flex:1}.nname .product-emoji,.nname .nchev{flex:none}.nname .product-name-input{flex:1;min-width:0;width:0;text-overflow:ellipsis}
-@media(min-width:761px){.nrow{grid-template-columns:minmax(205px,1.65fr) 1.3fr .6fr 1fr 1fr 1fr 1.7fr}}
+
 body{font-family:system-ui,-apple-system,"Segoe UI","Noto Color Emoji",sans-serif}
 .ico,.product-emoji,#productEmoji{font-family:"Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji",sans-serif;font-weight:400;font-synthesis:none}
 @media(max-width:760px){.nrow:not(.nhead){cursor:pointer}.nrow input{cursor:text}.nchev{min-width:24px;min-height:24px;display:inline-flex;align-items:center;justify-content:center}}
 .catalog-photo{display:block;max-width:100%;width:auto;max-height:180px;object-fit:contain;margin:10px auto}
 .catalog-source{font-size:.75rem;color:var(--mut);margin:8px 0}.catalog-source a{color:var(--green)}
 .catalog-error{color:var(--red);font-size:.85rem;min-height:1em}.catalog-norms{width:100%;margin-top:8px}
+/* Keep undo reachable without covering the active form or package cards. */
+body:has(#ov:not([hidden])) #toast{top:12px;bottom:auto}

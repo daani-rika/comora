@@ -11,14 +11,20 @@ let P=[
  {id:5,n:'Макарони',e:'🍝',u:'кг',seg:1,normP:4,use:1,life:730,codes:{.5:'4820000500019'}},
  {id:6,n:'Олія',e:'🫒',u:'л',seg:1,normP:2,use:.7,life:365,codes:{1:'4820000600016'}}];
 let B=[
- {p:1,s:.8,x:off(12),q:1},{p:1,s:.7,x:off(95),q:1},{p:1,s:.9,x:off(210),q:1},{p:1,s:1,x:off(240),q:4},
- {p:2,s:1,x:off(80),q:3},{p:3,s:.4,x:off(45),q:1},{p:4,s:.5,x:off(-5),q:2},
- {p:5,s:.5,x:off(300),q:4},{p:6,s:1,x:off(24),q:1}];
-const DEMO={1:{g:700,people:1,months:3},2:{g:800,people:2,months:2},3:{g:500,people:1,months:3,pack:400},4:{g:1000,people:1,months:2},5:{g:1000,people:1,months:2,pack:500},6:{g:700,people:1,months:3}};
+ {p:1,s:.8,x:off(12),q:1,loc:'Ящик 1'},{p:1,s:.7,x:off(95),q:1,loc:'Ящик 1'},{p:1,s:.9,x:off(210),q:1,loc:'Буфет'},{p:1,s:1,x:off(240),q:4,loc:'Буфет'},
+ {p:2,s:1,x:off(80),q:3,loc:'Ящик 1'},{p:3,s:.4,x:off(45),q:1,loc:'Полиця 2'},{p:4,s:.5,x:off(-5),q:2,loc:'Полиця 2'},
+ {p:5,s:.5,x:off(300),q:4,loc:'Буфет'},{p:6,s:1,x:off(24),q:1,loc:'Буфет'},
+ {p:7,s:.185,x:off(500),q:3,loc:'Полиця 2'},{p:8,s:3,x:off(700),q:1,loc:'Антресоль'}];
+let LOCS=['Ящик 1','Полиця 2','Буфет','Антресоль'];
+let CATS=['Крупи','Олії','Консерви','Миючі'];
+P.push({id:7,n:'Тунець',e:'🥫',u:'кг',seg:.185,normP:3,use:.37,life:1095,codes:{.185:'4820000700013'}},{id:8,n:'Порошок',e:'🧴',u:'кг',seg:3,normP:2,use:2,life:1095,codes:{3:'4820000800010'}});
+const CAT0={1:'Крупи',2:'Крупи',3:'Крупи',4:'Крупи',5:'Крупи',6:'Олії',7:'Консерви',8:'Миючі'};
+P.forEach(p=>{if(!p.cat)p.cat=CAT0[p.id]||''});
+const DEMO={1:{g:700,people:1,months:3},2:{g:800,people:2,months:2},3:{g:500,people:1,months:3,pack:400},4:{g:1000,people:1,months:2},5:{g:1000,people:1,months:2,pack:500},6:{g:700,people:1,months:3},7:{g:370,people:1,months:2},8:{g:2000,people:1,months:2}};
 function recalc(p){p.use=p.g/1000;const days=Math.min(p.months*30,p.life);p.capped=p.months*30>p.life;p.target=p.use*p.people*days/30;p.seg=p.pack/1000;p.calc=Math.max(1,Math.ceil(p.target/p.seg-1e-9));p.normP=p.ov||p.calc}
 function mk(p){const d=DEMO[p.id]||{};p.g=p.g||d.g||Math.round((p.use||.5)*1000);p.people=p.people||d.people||1;p.months=p.months||d.months||3;p.pack=p.pack||d.pack||Math.round((p.seg||1)*1000);recalc(p)}
 P.forEach(mk);
-let filter='all',open=new Set(),snap=null;
+let filterCat=null,filterSt=new Set(),open=new Set(),snap=null;
 const $=s=>document.querySelector(s);
 const nf=n=>String(+n.toFixed(2)).replace('.',',');
 const size=(s,u)=>u==='шт.'?nf(s)+' шт.':u==='кг'?(s<1?Math.round(s*1000)+' г':nf(s)+' кг'):(s<1?Math.round(s*1000)+' мл':nf(s)+' л');
@@ -33,23 +39,23 @@ function info(p){
   const bs=B.filter(b=>b.p===p.id&&b.q>0).sort((a,b)=>(daysTo(a.x)<0?0:1)-(daysTo(b.x)<0?0:1)||(a.k||'').localeCompare(b.k||'')||a.x.localeCompare(b.x));
   const total=bs.reduce((a,b)=>a+b.s*b.q,0), packs=bs.reduce((a,b)=>a+b.q,0);
   const n=packs;
-  return {bs,total,packs,n,low:n<p.normP/2,excess:n>p.normP};
+  return {bs,total,packs,n,low:n<p.normP/2,excess:n>p.normP,locs:[...new Set(bs.map(b=>b.loc).filter(Boolean))]};
 }
 function render(){
   persistState();
   const q=$('#q').value.trim().toLowerCase();
   let items=P.map(p=>({p,i:info(p)}));
   const cnt={low:items.filter(x=>x.i.low).length,excess:items.filter(x=>x.i.excess).length};
-  $('#chips').innerHTML=[['all','Усі'],['low','Закінчується'],['excess','Зайве']]
-    .map(([k,t])=>`<button data-f="${k}" aria-pressed="${filter===k}">${t}${k!=='all'?`<b>${cnt[k]}</b>`:''}</button>`).join('');
-  items=items.filter(x=>(!q||x.p.n.toLowerCase().includes(q))&&(filter==='all'||(filter==='low'&&x.i.low)||(filter==='excess'&&x.i.excess)));
+  const cats=CATS.filter(c=>P.some(p=>p.cat===c));
+  $('#chips').innerHTML=`<button data-f="all" aria-pressed="${!filterCat&&!filterSt.size}">Усі</button>`+(cats.length>1?cats.map(c=>`<button data-fc="${esc(c)}" aria-pressed="${filterCat===c}">${esc(c)}</button>`).join('')+'<span class="sep"></span>':'')+[['low','Закінчується'],['excess','Зайве']].map(([k,t])=>`<button data-fs2="${k}" aria-pressed="${filterSt.has(k)}">${t}<b>${cnt[k]}</b></button>`).join('');
+  items=items.filter(x=>(!q||x.p.n.toLowerCase().includes(q))&&(!filterCat||x.p.cat===filterCat)&&[...filterSt].every(k=>k==='low'?x.i.low:x.i.excess));
   items.sort((a,b)=>a.p.n.localeCompare(b.p.n));
   $('#list').innerHTML=items.map(({p,i})=>{
     const n=i.n,slots=Math.max(p.normP,n);
     const pills=Array.from({length:slots},(_,k)=>`<span class="pl ${k>=n?'e':k>=p.normP?'x':''}"></span>`).join('');
     const months=i.total/(p.use*p.people);
     const sub=i.total&&p.use===0?"Витрату не задано":i.total?`~${String(+months.toFixed(1)).replace('.',',')} міс. / ${p.people} ос.`:'немає в коморі';
-    return `<article class="card"><div class="cl"><div class="ch"><span class="ico">${productEmoji(p)}</span><div><div class="nm">${typeof CLOUD!=='undefined'&&CLOUD?`<button class="name-edit" data-edit-product="${p.id}" aria-label="Редагувати продукт ${esc(p.n)}">${esc(p.n)}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m4 16 12-12 4 4L8 20H4Zm9-9 4 4"/></svg></button>`:esc(p.n)}</div><div class="sub">${sub}</div></div></div><div class="pills">${pills}</div></div>
+    return `<article class="card"><div class="cl"><div class="ch"><span class="ico">${productEmoji(p)}</span><div class="chm"><div class="chr"><div class="nm">${typeof CLOUD!=='undefined'&&CLOUD?`<button class="name-edit" data-edit-product="${p.id}" aria-label="Редагувати продукт ${esc(p.n)}">${esc(p.n)}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m4 16 12-12 4 4L8 20H4Zm9-9 4 4"/></svg></button>`:esc(p.n)}</div><div class="sup">${sub}</div></div>${i.locs.length?`<div class="loc">${i.locs.map(esc).join(' · ')}</div>`:''}</div></div><div class="pills">${pills}</div></div>
     <div class="qb"><button class="qa" data-op="add|${p.id}" aria-label="Додати"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button><button class="qt" data-op="take|${p.id}" aria-label="Взяти"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12h14"/></svg></button></div></article>`}).join('')||'<div class="empty">Нічого не знайдено</div>';
 }
 
@@ -120,7 +126,7 @@ function drawOp(){
 
 // ===== сторінка «Взяти»: картка на кожну пачку =====
 const PEOPLE=1;
-const GR={1:['#a0713f','#4e3320'],2:['#8596a0','#3c4a52'],3:['#c4652f','#6b2f14'],4:['#ad9473','#5a4a35'],5:['#cc9c30','#6e5214'],6:['#85922f','#3d4516']};
+const GR={1:['#a0713f','#4e3320'],2:['#8596a0','#3c4a52'],3:['#c4652f','#6b2f14'],4:['#ad9473','#5a4a35'],5:['#cc9c30','#6e5214'],6:['#85922f','#3d4516'],7:['#4f7a8f','#22404f'],8:['#6f8fc9','#2d4a80']};
 const NM={'1|1':'Крупа гречана Ситий двір ядриця'};
 const pname=(p,s)=>NM[p.id+'|'+s]||p.n;
 const my=x=>new Date(x).toLocaleDateString('uk-UA',{month:'short',year:'numeric'}).replace(/\s?р\.$/,'');
@@ -133,11 +139,11 @@ function ean(c){if(!/^\d{13}$/.test(c))return null;const d=[...c].map(Number);le
 const BAR='<svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2"><path d="M4 5v14M8 5v14M11 5v14M15 5v14M18 5v14M21 5v14"/></svg>';
 function drawTake(p,i){
   p.ph=p.ph||{};
-  if(!S.tp)S.tp=i.bs.flatMap(b=>Array.from({length:Math.ceil(b.q)},()=>({id:b.id,photo_file_id:b.photo_file_id,s:b.s,x:b.x,k:b.k,photo:b.photo,code:b.code||p.codes[b.s],name:b.name,done:0})));
+  if(!S.tp)S.tp=i.bs.flatMap(b=>Array.from({length:Math.ceil(b.q)},()=>({id:b.id,photo_file_id:b.photo_file_id,s:b.s,x:b.x,loc:b.loc||'',k:b.k,photo:b.photo,code:b.code||p.codes[b.s],name:b.name,done:0})));
   const cards=S.tp.map((t,k)=>{
     const ph=t.photo||p.ph[t.s],g=GR[p.id]||['#6b7f77','#33403b'],old=daysTo(t.x)<=30;
     return `<div class="pc ${t.done?'done':''}" data-tk="${k}" style="${ph?`background-image:url('${ph}')`:`background:linear-gradient(160deg,${g[0]},${g[1]})`}">
-    <button class="bc" data-bc="${k}" aria-label="Штрих-код">${BAR}</button>
+    <button class="bc" data-bc="${k}" aria-label="Штрих-код">${BAR}</button>${t.loc?`<span class="lc">${esc(t.loc)}</span>`:''}
     <div class="pt"><b class="pn">${esc(t.name||pname(p,t.s))}</b><div class="pm"><b>${size(t.s,p.u)}</b><span class="${old?'old':''}">${my(t.x)}</span></div></div>
     ${t.done?'<div class="dn">Взято</div>':''}</div>`}).join('');
   show(`<div class="top3"><h2 class="th"><span style="color:var(--red)">Взяти</span> • ${esc(p.n)} • <b>${i.packs}</b> <span class="sub">${pk(i.packs)}</span></h2>
@@ -160,31 +166,37 @@ IC.cal='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width=
 const esc=t=>String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 function drawAdd(p,i){
   p.ph=p.ph||{};
-  const f=S.f,card=S.stage==='card'&&f,tot=i.packs+(card?f.n:0);
-  const head=`<div class="top3"><h2 class="th"><span style="color:var(--green)">Додати</span> • ${esc(p.n)} • <b>${card?`${i.packs} → ${tot}`:i.packs}</b> <span class="sub">${pk(tot)}</span></h2><div class="ib"><button data-close aria-label="Закрити">✕</button></div></div>`;
+  const f=S.f,card=S.stage==='card'&&f,tot=i.packs+(card?f.n:0),ph=card?(f.photo||p.ph[f.s]):null;
+  const cam=`<label class="ibtn" aria-label="Сфотографувати пачку">${ph?`<img src="${ph}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:5px">`:IC.cam}<input type="file" id="ph0" accept="image/*" capture="environment" hidden></label>`;
+  const head=`<div class="top3"><h2 class="th"><span style="color:var(--green)">Додати</span> • ${esc(p.n)} • <b>${card?`${i.packs} → ${tot}`:i.packs}</b>${card?'':` <span class="sub">${pk(tot)}</span>`}</h2><div class="ib">${card?cam:''}<button data-close aria-label="Закрити">✕</button></div></div>`;
   if(!card){
     show(head+`<div class="start"><button class="pri" data-scan>${IC.bar}Сканувати</button><button class="wide" data-manual>+ Додати вручну</button></div>`);
     $('#sheet').className='sheet add';return;
   }
-  const ph=f.photo||p.ph[f.s],sizes=[...new Set([1,...Object.keys(p.codes).map(Number),...i.bs.map(b=>b.s),f.s])].sort((a,b)=>b-a);
-  const d=f.x?new Date(f.x):null;
-  const dl=d?`${d.toLocaleDateString('uk-UA',{month:'short'}).replace('.','')}<br>${d.getFullYear()}`:IC.cal;
-  const base=d||new Date(plus(off(0),p.life)),y0=today().getFullYear();
-  const chips=S.sz?`<div class="sz" style="margin:10px 0 0">${sizes.map(s=>`<button data-fs="${s}" aria-pressed="${s===f.s}">${size(s,p.u)}</button>`).join('')}${S.addSz?'':'<button data-nsz>інша</button>'}</div>${S.addSz?`<div class="tools" style="margin-top:8px"><input id="nsz" inputmode="decimal" placeholder="Розмір, ${p.u}"><button data-nszok>OK</button></div>`:''}`:'';
-  const panel=S.dp?`<div class="dpanel"><select id="mm">${MN.map((m,k)=>`<option value="${k}" ${k===base.getMonth()?'selected':''}>${m}</option>`).join('')}</select><select id="yy">${Array.from({length:8},(_,k)=>y0+k).map(y=>`<option ${y===base.getFullYear()?'selected':''}>${y}</option>`).join('')}</select><button data-dpok>Готово</button></div>`:'';
-  show(head+`<div class="ac3"><div class="ac3l"><textarea class="nmt" rows="2" data-fn placeholder="Назва">${esc(f.name)}</textarea>
-  <button class="wbtn" data-wt>${size(f.s,p.u)} <small>▾</small></button>
+  if(f.loc===undefined)f.loc=p.lastLoc||'';
+  if(!f.x){f.estimated=true;const b=new Date(plus(off(0),p.life));f.x=new Date(Date.UTC(b.getUTCFullYear(),b.getUTCMonth()+1,0)).toISOString().slice(0,10)}
+  const sizes=[...new Set([1,...Object.keys(p.codes).map(Number),...i.bs.map(b=>b.s),f.s])].sort((a,b)=>b-a);
+  const d=new Date(f.x),yy=d.getUTCFullYear(),yrs=Array.from({length:8},(_,k)=>today().getFullYear()+k);if(!yrs.includes(yy))yrs.push(yy);
+  const locs=[...new Set([...LOCS,...B.map(b=>b.loc).filter(Boolean)])];
+  const chips=S.sz?`<div class="sz" style="margin:0">${sizes.map(s=>`<button data-fs="${s}" aria-pressed="${s===f.s}">${size(s,p.u)}</button>`).join('')}${S.addSz?'':'<button data-nsz>інша</button>'}</div>${S.addSz?`<div class="tools"><input id="nsz" inputmode="decimal" placeholder="Розмір, ${p.u}"><button data-nszok>OK</button></div>`:''}`:'';
+  show(head+`<div class="ac3 col">
+  <textarea class="nmt" rows="1" data-fn placeholder="Назва">${esc(f.name)}</textarea>
+  <div class="rowbs">${S.addSz?`<div class="tools" style="margin:0;flex:1"><input id="nsz" inputmode="decimal" placeholder="Розмір, ${p.u}" autocomplete="off"><button data-nszok>OK</button></div>`:`<span class="wsw"><span class="wvalue" aria-hidden="true">${size(f.s,p.u)}</span><select id="wsel" class="wsel" aria-label="Розмір пачки">${sizes.map(s=>`<option value="${s}" ${s===f.s?'selected':''}>${size(s,p.u)}</option>`).join('')}<option value="__new">Інший…</option></select><small>▾</small></span>`}
   <div class="seg2 stp"><button data-ra="x|-1" aria-label="Менше" ${f.n<2?'disabled':''}>${IC.dn}</button><output>${f.n}</output><button data-ra="x|1" aria-label="Більше">${IC.up}</button></div></div>
-  <div class="ac3r"><button data-dp class="${f.x?'has':''}" aria-label="Придатне до">${dl}</button><label class="${ph?'has':''}" aria-label="Сфотографувати пачку">${IC.cam}<input type="file" id="ph0" accept="image/*" capture="environment" hidden></label></div></div>
-  ${chips}${panel}${ph?`<img class="bigph" src="${ph}" alt="">`:''}
+  <div class="frow"><span class="fl">Придатне до</span><select id="mm" class="msel" aria-label="Місяць">${MN.map((m,k)=>`<option value="${k}" ${k===d.getUTCMonth()?'selected':''}>${m}</option>`).join('')}</select><select id="yy" class="msel ysel" aria-label="Рік">${yrs.map(y=>`<option ${y===yy?'selected':''}>${y}</option>`).join('')}</select></div>
+  <div class="frow"><span class="fl">Де лежить</span><select id="lsel" class="msel" aria-label="Де лежить"><option value="" ${!S.addLoc&&!f.loc?'selected':''}>Не вказано</option>${locs.map(l=>`<option value="${esc(l)}" ${!S.addLoc&&f.loc===l?'selected':''}>${esc(l)}</option>`).join('')}<option value="__new" ${S.addLoc?'selected':''}>＋ Нове місце…</option></select></div>
+  ${S.addLoc?`<div class="tools locedit"><input id="nloc" maxlength="100" placeholder="Нове місце" autocomplete="off" value="${esc(S.locDraft||'')}"><button data-nlocok>OK</button></div>`:''}
+  </div>${ph?`<img class="bigph" src="${ph}" alt="">`:''}
   <button class="pri" style="width:100%;min-height:50px;margin-top:12px" data-go>Підтвердити</button>`);
   $('#sheet').className='sheet add';
+  const nt=$('.nmt');if(nt){nt.style.height='auto';nt.style.height=nt.scrollHeight+'px'}
+  const ni=$('#nsz')||$('#nloc');if(ni)ni.focus();
 }
 function goAdd(){
   const p=P.find(p=>p.id===S.pid),f=S.f,before=JSON.stringify(B),x=f.x||plus(off(0),p.life);
   if(f.code){p.codes[f.s]=f.code;p.barcodeSizes={...p.barcodeSizes,[f.code]:f.s}}else if(!(f.s in p.codes))p.codes[f.s]='';
-  const photo=f.photo||p.ph[f.s]||'',code=f.code||p.codes[f.s]||'';
-  const g=B.find(b=>b.p===S.pid&&b.s===f.s&&b.x===x&&(b.photo||'')===photo&&(b.code||'')===code);g?g.q+=f.n:B.push({p:S.pid,s:f.s,x,q:f.n,k:off(0),photo,code,name:f.name});
+  const loc=f.loc||'';if(loc&&!LOCS.includes(loc))LOCS.push(loc);p.lastLoc=loc;
+  const g=B.find(b=>b.p===S.pid&&b.s===f.s&&b.x===x&&(b.loc||'')===loc);g?g.q+=f.n:B.push({p:S.pid,s:f.s,x,q:f.n,k:off(0),loc});
   toast(`Додано ${f.n} ${pk(f.n)} · ${esc(p.n)}`,before);render();
 }
 
@@ -326,6 +338,7 @@ window.addEventListener('pagehide',()=>stopCam());
 function createSheet(code){
   show(`<div class="row"><h2>Новий продукт</h2><button data-close style="border:0">✕</button></div>
   <div class="lbl">Назва</div><input id="nn" placeholder="напр. Пшоно">
+  <div class="lbl">Категорія</div><select id="ncat" class="sel">${CATS.map(c=>`<option>${esc(c)}</option>`).join('')}</select><input id="ncat2" placeholder="або нова категорія" style="margin-top:6px">
   <label class="lbl" for="nu">Одиниця</label><select id="nu"><option value="kg">Кілограми</option><option value="l">Літри</option><option value="pcs">Штуки</option></select><div class="lbl">Розмір пачки в обраній одиниці</div><input id="ns" inputmode="decimal" value="1">
   <div class="lbl">Цільова норма, кг або л</div><input id="nm" inputmode="decimal" value="2">
   
@@ -340,14 +353,20 @@ document.addEventListener('click',e=>{
     $('#list').hidden=n;$('#tools').hidden=n;$('#bScan').hidden=n;$('#norms').hidden=!n;if(n)renderNorms()}
   else if('gear' in D)show('<div class="row"><h2>Налаштування</h2><button data-close style="border:0" aria-label="Закрити">✕</button></div><p class="sub">Тут будуть налаштування застосунку.</p>');
   else if(D.nx!==undefined){if(!e.target.closest('.nres'))t.closest('.nrow').classList.toggle('open')}
+  else if(D.catok!==undefined){saveCat(+D.catok)}
   else if(D.rst){const p=P.find(p=>String(p.id)===String(D.rst));p.ov=null;recalc(p);updRes(p);render()}
-  else if(D.f){filter=D.f;render()}
+  else if(D.f){filterCat=null;filterSt.clear();render()}
+  else if(D.fc!==undefined){filterCat=filterCat===D.fc?null:D.fc;render()}
+  else if(D.fs2){const on=filterSt.has(D.fs2);filterSt.clear();if(!on)filterSt.add(D.fs2);render()}
   else if(D.op){const[m,id]=D.op.split('|');const p=P.find(p=>String(p.id)===String(id));opSheet(resolveProductId(id),m==='auto'?(info(p).packs?'take':'add'):m)}
   else if(D.eat){const[id,s,x]=D.eat.split('|');take(resolveProductId(id),+s,1,x);if(!$('#ov').hidden)drawOp()}
   else if('close' in D)close();
   else if('scan' in D){S.back=true;scanSheet()}
   else if('ml' in D){S.ml=!S.ml;drawOp()}
   else if('dt' in D){S.dt=!S.dt;drawOp()}
+  else if(D.loc!==undefined){S.f.loc=S.f.loc===D.loc?'':D.loc;drawOp()}
+  else if('newloc' in D){S.addLoc=true;drawOp()}
+  else if('nlocok' in D){const v=($('#nloc').value||'').trim();if(v){if(!LOCS.includes(v))LOCS.push(v);S.f.loc=v;S.addLoc=false;drawOp()}else{S.addLoc=false;drawOp()}}
   else if('manual' in D){const p=P.find(p=>p.id===S.pid);S.stage='card';S.f={s:1,n:1,x:'',code:'',name:pname(p,1)};drawOp()}
   else if('wt' in D){S.sz=!S.sz;S.addSz=false;drawOp()}
   else if(D.fs!==undefined){const p=P.find(p=>p.id===S.pid);S.f.s=+D.fs;S.f.name=pname(p,S.f.s);S.sz=false;drawOp()}
@@ -356,10 +375,10 @@ document.addEventListener('click',e=>{
   else if(D.ra){S.f.n=Math.max(1,S.f.n+ +D.ra.split('|')[1]);drawOp()}
   else if(D.rsc!==undefined){S.s=S.rows[+D.rsc].s;S.back=true;scanSheet()}
   else if('nsz' in D){S.addSz=true;drawOp()}
-  else if('nszok' in D){const v=parseFloat(($('#nsz').value||'').replace(',','.'));if(v>0){const p=P.find(p=>p.id===S.pid);S.f.s=v;S.f.name=pname(p,v);S.addSz=false;S.sz=false;drawOp()}}
+  else if('nszok' in D){const v=parseFloat(($('#nsz').value||'').replace(',','.'));if(v>0){const p=P.find(p=>p.id===S.pid);S.f.s=v;S.f.name=pname(p,v);S.addSz=false;S.sz=false;drawOp()}else{S.addSz=false;drawOp()}}
   else if(D.tk!==undefined){const p=P.find(p=>p.id===S.pid),t=S.tp[+D.tk];
-    if(!t.done){const g=B.find(b=>b.p===p.id&&b.s===t.s&&b.x===t.x&&b.photo===t.photo&&b.q>0);if(g){g.q--;B=B.filter(b=>b.q>0);t.done=1}}
-    else{const g=B.find(b=>b.p===p.id&&b.s===t.s&&b.x===t.x&&b.photo===t.photo);g?g.q++:B.push({p:p.id,s:t.s,x:t.x,q:1,k:t.k||off(0),photo:t.photo,code:t.code,name:t.name});t.done=0}
+    if(!t.done){const g=B.find(b=>b.p===p.id&&b.s===t.s&&b.x===t.x&&(b.loc||'')===t.loc&&b.q>0);if(g){g.q--;B=B.filter(b=>b.q>0);t.done=1}}
+    else{const g=B.find(b=>b.p===p.id&&b.s===t.s&&b.x===t.x&&(b.loc||'')===t.loc);g?g.q++:B.push({p:p.id,s:t.s,x:t.x,q:1,k:t.k||off(0),photo:t.photo,code:t.code,name:t.name,loc:t.loc});t.done=0}
     render();drawOp()}
   else if(D.bc!==undefined)bcSheet(+D.bc);
   else if('back' in D)drawOp();
@@ -369,18 +388,22 @@ document.addEventListener('click',e=>{
   else if(D.n){const av=B.filter(b=>b.p===S.pid&&b.s===S.s).reduce((a,b)=>a+b.q,0);S.n=Math.max(1,Math.min(S.mode==='take'?Math.max(1,av):99,S.n+ +D.n));drawOp()}
   else if(D.k!==undefined){S.k=off(-D.k);if(!S.xm)S.x=plus(S.k,P.find(p=>p.id===S.pid).life);drawOp()}
   else if('code' in D){const c=(S.cd||'').trim();if(c){P.find(p=>p.id===S.pid).codes[S.s]=c;toast('Штрих-код збережено')}}
-  else if('go' in D){goAdd();close()}
+  else if('go' in D){if(S.addLoc){const v=(S.locDraft||'').trim();if(!v){$('#nloc').focus();return}S.f.loc=v;S.addLoc=false;}goAdd();close()}
   else if('lookup' in D)lookup($('#code').value.trim());
   else if(D.demo)lookup(D.demo);
   else if(D.link){const[id,c]=D.link.split('|');const p=P.find(p=>String(p.id)===String(id));opSheet(resolveProductId(id),'add');S.stage='card';S.f={s:1,n:1,x:'',code:c,name:pname(p,1)};drawOp()}
   else if(D.create)createSheet(D.create);
-  else if(D.save){const n=$('#nn').value.trim();if(!n)return;const s=parseFloat($('#ns').value.replace(',','.'))||1,nm=parseFloat($('#nm').value.replace(',','.'))||2;
-    const p={id:Date.now(),n,e:'📦',u:'кг',seg:s,normP:Math.max(1,Math.round(nm/s)),use:nm/3,life:365,codes:{[s]:D.save}};mk(p);P.push(p);render();opSheet(p.id,'add',D.save)}
+  else if(D.save){const n=$('#nn').value.trim();if(!n)return;const cat=($('#ncat2').value.trim()||$('#ncat').value||'');if(cat&&!CATS.includes(cat))CATS.push(cat);const s=parseFloat($('#ns').value.replace(',','.'))||1,nm=parseFloat($('#nm').value.replace(',','.'))||2;
+    const p={id:Date.now(),n,e:'📦',u:'кг',seg:s,normP:Math.max(1,Math.round(nm/s)),use:nm/3,life:365,cat,codes:{[s]:D.save}};mk(p);P.push(p);render();opSheet(p.id,'add',D.save)}
 });
 document.addEventListener('input',e=>{if(e.target.classList&&e.target.classList.contains('ei'))e.target.style.width=Math.max(2,e.target.value.length+1)+'ch';if(e.target.dataset.ne!==undefined){const[id,k]=e.target.dataset.ne.split('|'),p=P.find(p=>String(p.id)===String(id)),v=parseFloat(e.target.value.replace(',','.'));if(v>0){if(k==='packs'){const n=Math.max(1,Math.round(v));p.ov=n===p.calc?null:n}else p[k]=v;recalc(p);updRes(p);render()}return}
-  if(e.target.id==='cd')S.cd=e.target.value;if(e.target.dataset.fn!==undefined){S.f.name=e.target.value;NM[S.pid+'|'+S.f.s]=e.target.value}});
+  if(e.target.id==='nloc')S.locDraft=e.target.value;if(e.target.id==='cd')S.cd=e.target.value;if(e.target.dataset.fn!==undefined){e.target.style.height='auto';e.target.style.height=e.target.scrollHeight+'px';S.f.name=e.target.value;NM[S.pid+'|'+S.f.s]=e.target.value}});
 document.addEventListener('change',e=>{
   const id=e.target.id;
+  if(id==='wsel'){if(e.target.value==='__new')S.addSz=true;else{const p=P.find(p=>p.id===S.pid);S.f.s=+e.target.value;S.f.name=pname(p,S.f.s);S.addSz=false}drawOp();return}
+  if(id==='lsel'){if(e.target.value==='__new'){S.addLoc=true;S.locDraft='';drawOp()}else{S.f.loc=e.target.value;S.addLoc=false;S.locDraft='';drawOp()}return}
+  if(id==='mm'||id==='yy'){S.f.x=new Date(Date.UTC(+$('#yy').value,+$('#mm').value+1,0)).toISOString().slice(0,10);S.f.estimated=false;return}
+  if(e.target.dataset.cat!==undefined){const p=P.find(p=>String(p.id)===String(e.target.dataset.cat)),box=e.target.closest('.nf-cat').querySelector('.catnew');if(e.target.value==='__new'){box.hidden=false;box.querySelector('input').focus()}else{p.cat=e.target.value;box.hidden=true;render()}return}
   if(e.target.dataset.dt!==undefined){S.rows[+e.target.dataset.dt].x=e.target.value;return}
   if(id==='k'&&e.target.value){S.k=e.target.value;if(!S.xm)S.x=plus(S.k,P.find(p=>p.id===S.pid).life);drawOp()}
   else if(id==='x'&&e.target.value){S.x=e.target.value;S.xm=true;drawOp()}
@@ -390,14 +413,16 @@ const NF=(n,d=1)=>String(+(+n).toFixed(d)).replace('.',',');
 const FL=[['g','На 1 особу за місяць'],['people','Осіб'],['months','Запас на, міс.'],['life','Придатне, днів'],['pack','Пачка']];
 function rsHtml(p){const u=p.u;return (p.ov?`<button class="lnk2" data-rst="${p.id}" aria-label="Скинути до розрахунку: ${p.calc}">↺ ${p.calc}</button>`:`≈ ${NF(p.target,2)} ${u}`)}
 function updRes(p){const r=$('#res'+p.id);if(!r)return;const ep=r.querySelector('.ep');if(document.activeElement!==ep)ep.value=p.normP;ep.classList.toggle('man',!!p.ov);r.querySelector('.rr span').textContent=pk(p.normP);r.querySelector('.rs').innerHTML=rsHtml(p)}
+function saveCat(id){const p=P.find(p=>p.id===id),field=document.querySelector('[data-catinput="'+id+'"]'),name=field.value.trim();if(!name||name==='__new')return;const cat=CATS.find(c=>c.toLowerCase()===name.toLowerCase())||name;if(!CATS.includes(cat))CATS.push(cat);p.cat=cat;document.querySelectorAll('[data-cat]').forEach(sel=>{const item=P.find(x=>x.id===+sel.dataset.cat);const pending=sel.value==='__new'&&item.id!==id;const opts=[...new Set([...CATS,item.cat].filter(Boolean))];sel.replaceChildren(...opts.map(c=>new Option(c,c)),new Option('Інша…','__new'));sel.value=pending?'__new':item.cat});field.closest('.catnew').hidden=true;field.value='';render()}
 function renderNorms(){
   const un=p=>p.u==='шт.'?'шт.':p.u==='л'?'мл':'г';
   const nf=(p,k,l)=>`<label class="nf nf-${k}"><span class="nl">${l}</span><span class="nbox"><input class="ei" data-ne="${p.id}|${k}" inputmode="decimal" value="${NF(p[k]/(p.u==='шт.'&&['g','pack'].includes(k)?1000:1),2)}" style="width:${Math.max(2,NF(p[k]/(p.u==='шт.'&&['g','pack'].includes(k)?1000:1),2).length+1)}ch">${k==='g'||k==='pack'?`<span class="un">${un(p)}</span>`:k==='life'?'<span class="un">дн.</span>':''}</span></label>`;
   $('#norms').innerHTML=(typeof CLOUD!=='undefined'&&CLOUD?'<div class="norm-product-tools"><button data-new-product>＋ Додати продукт</button></div>':'')+`
-  <div class="nt2"><div class="nrow nhead"><span>Продукт</span>${FL.map(f=>`<span>${f[1]}</span>`).join('')}<span>Тримати, пачок</span></div>`+
-  P.map(p=>`<div class="nrow"><div class="nhd" data-nx="${p.id}"><div class="nname"><span class="product-emoji">${productEmoji(p)}</span> ${typeof CLOUD!=='undefined'&&CLOUD?`<input class="product-name-input" data-name-product="${p.id}" value="${esc(p.n)}" maxlength="100" aria-label="Назва продукту ${esc(p.n)}">`:esc(p.n)} <span class="nchev">▾</span></div><div class="nres" id="res${p.id}"><div class="rr"><input class="ep ${p.ov?'man':''}" data-ne="${p.id}|packs" inputmode="numeric" value="${p.normP}" aria-label="Пачок"><div class="rw"><span>${pk(p.normP)}</span><div class="rs">${rsHtml(p)}</div></div></div></div></div>${FL.map(f=>nf(p,f[0],f[1])).join('')}</div>`).join('')+'</div>';
+  <div class="nt2"><div class="nrow nhead"><span>Продукт</span><span>Категорія</span>${FL.map(f=>`<span>${f[1]}</span>`).join('')}<span>Тримати, пачок</span></div>`+
+  P.map(p=>`<div class="nrow"><div class="nhd" data-nx="${p.id}"><div class="nname"><span class="product-emoji">${productEmoji(p)}</span> ${typeof CLOUD!=='undefined'&&CLOUD?`<input class="product-name-input" data-name-product="${p.id}" value="${esc(p.n)}" maxlength="100" aria-label="Назва продукту ${esc(p.n)}">`:esc(p.n)}</div><div class="nres" id="res${p.id}"><div class="rr"><input class="ep ${p.ov?'man':''}" data-ne="${p.id}|packs" inputmode="numeric" value="${p.normP}" aria-label="Пачок"><div class="rw"><span>${pk(p.normP)}</span><div class="rs">${rsHtml(p)}</div></div></div></div><span class="nchev" aria-hidden="true">▾</span></div><div class="nf nf-cat"><span class="nl">Категорія</span><select class="esel" aria-label="Категорія ${esc(p.n)}" data-cat="${p.id}"><option value="" ${!p.cat?'selected':''}>Без категорії</option>${[...new Set([...CATS,p.cat].filter(Boolean))].map(c=>`<option value="${esc(c)}" ${c===p.cat?'selected':''}>${esc(c)}</option>`).join('')}<option value="__new">Інша…</option></select><div class="catnew" hidden><input aria-label="Нова категорія" placeholder="Нова категорія" maxlength="100" data-catinput="${p.id}"><button data-catok="${p.id}">OK</button></div></div>${FL.map(f=>nf(p,f[0],f[1])).join('')}</div>`).join('')+'</div>';
+  if(typeof restoreExpandedRows==='function')restoreExpandedRows();
 }
-document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='code')lookup(e.target.value.trim())});
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.dataset.catinput!==undefined){e.preventDefault();saveCat(+e.target.dataset.catinput)}if(e.key==='Enter'&&e.target.id==='code')lookup(e.target.value.trim());if(e.key==='Enter'&&e.target.id==='nloc')document.querySelector('[data-nlocok]').click();if(e.key==='Enter'&&e.target.id==='nsz')document.querySelector('[data-nszok]').click()});
 document.addEventListener('focusin',e=>{if(e.target.matches&&e.target.matches('.ep,.ei')){const t=e.target;setTimeout(()=>{try{t.select();t.setSelectionRange(0,99)}catch(_){}},0)}});
 document.addEventListener('focusout',e=>{const t=e.target;if(t.dataset&&t.dataset.ne!==undefined){const[id,k]=t.dataset.ne.split('|'),p=P.find(p=>String(p.id)===String(id));if(p){t.value=k==='packs'?p.normP:NF(p[k]/(p.u==='шт.'&&['g','pack'].includes(k)?1000:1),2);if(k!=='packs')t.style.width=Math.max(2,t.value.length+1)+'ch'}}});
 $('#q').oninput=render;
@@ -410,7 +435,7 @@ function persistState(){
   if(!storageReady||!localDb)return;
   try{
     const tx=localDb.transaction('state','readwrite');
-    tx.objectStore('state').put({version:1,P,B,NM},'pantry');
+    tx.objectStore('state').put({version:1,P,B,NM,CATS,LOCS},'pantry');
     tx.onabort=()=>toast('Не вдалося зберегти зміни на пристрої. Перевірте вільне місце.');
   }catch(_){toast('Не вдалося зберегти зміни на пристрої.')}
 }
@@ -427,7 +452,7 @@ async function initLocalState(){
       req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
     });
     if(state?.version===1&&Array.isArray(state.P)&&Array.isArray(state.B)){
-      P=state.P;B=state.B;Object.assign(NM,state.NM||{});P.forEach(mk);
+      P=state.P;B=state.B;CATS=state.CATS||[...new Set(P.map(p=>p.cat).filter(Boolean))];LOCS=state.LOCS||[...new Set(B.map(b=>b.loc).filter(Boolean))];Object.assign(NM,state.NM||{});P.forEach(mk);
     }
   }catch(_){toast('Сховище браузера недоступне: зміни збережуться лише до закриття сторінки.')}
   storageReady=true;render();
@@ -576,7 +601,7 @@ function forget(key){try{localStorage.removeItem(CLOUD_KEY+key)}catch(_){}}
 function cloudStatus(message){const el=$('#syncText');if(el)el.textContent=message;}
 function readUiPrefs(){
   let value;try{value=JSON.parse(stored('ui')||'null')}catch(_){}
-  return {tab:value?.tab==='n'?'n':'p',expanded:Array.isArray(value?.expanded)?value.expanded.filter(x=>typeof x==='string'):[],query:typeof value?.query==='string'?value.query:'',filter:['all','low','excess'].includes(value?.filter)?value.filter:'all',scroll:value?.scroll&&typeof value.scroll==='object'?value.scroll:{}};
+  return {tab:value?.tab==='n'?'n':'p',expanded:Array.isArray(value?.expanded)?value.expanded.filter(x=>typeof x==='string'):[],query:typeof value?.query==='string'?value.query:'',category:typeof value?.category==='string'?value.category:null,statuses:Array.isArray(value?.statuses)?value.statuses.filter(x=>['low','excess'].includes(x)):[],filter:['all','low','excess'].includes(value?.filter)?value.filter:'all',scroll:value?.scroll&&typeof value.scroll==='object'?value.scroll:{}};
 }
 function saveUiPrefs(){try{storeValue('ui',JSON.stringify(uiPrefs))}catch(_){}}
 function rememberExpandedRows(){uiPrefs.expanded=[...document.querySelectorAll('.nrow.open [data-nx]')].map(el=>String(el.dataset.nx));saveUiPrefs();}
@@ -593,7 +618,7 @@ function setActiveTab(tab,{remember=true,restoreScroll=true}={}){
   if(restoreScroll)requestAnimationFrame(()=>window.scrollTo(0,Math.max(0,Number(uiPrefs.scroll[tab])||0)));
 }
 function restoreSavedUi(){
-  $('#q').value=uiPrefs.query;filter=uiPrefs.filter;setActiveTab(uiPrefs.tab,{remember:false});uiRestored=true;
+  $('#q').value=uiPrefs.query;filterCat=uiPrefs.category;filterSt=new Set(uiPrefs.statuses.length?uiPrefs.statuses:uiPrefs.filter==='all'?[]:[uiPrefs.filter]);setActiveTab(uiPrefs.tab,{remember:false});uiRestored=true;
 }
 function cloudControls(){
   document.querySelectorAll('[data-go],[data-save],[data-ne],[data-rst]').forEach(el=>el.disabled=false);
@@ -615,12 +640,12 @@ function optimisticFields(fields){
   if(fields.action==='add'){
     if(!p||B.some(b=>b.id===fields.batch_id))return;
     const raw=cloudLast?.state?.Products.find(x=>x.product_id===p.id);
-    B.push({id:fields.batch_id,p:p.id,s:fields.pack_weight_kg,q:fields.packs_qty,k:fields.added_date||off(0),x:fields.expiry_date||plus(fields.added_date||off(0),p.life-Number(raw?.store_buffer_days||0)),code:fields.barcode||'',name:fields.pack_name||'',photo:fields.photo_base64||cloudPhotos.get(fields.photo_file_id)||'',photo_file_id:fields.photo_file_id||''});
+    B.push({id:fields.batch_id,p:p.id,s:fields.pack_weight_kg,q:fields.packs_qty,k:fields.added_date||off(0),x:fields.expiry_date||plus(fields.added_date||off(0),p.life-Number(raw?.store_buffer_days||0)),loc:fields.storage_location||'',code:fields.barcode||'',name:fields.pack_name||'',photo:fields.photo_base64||cloudPhotos.get(fields.photo_file_id)||'',photo_file_id:fields.photo_file_id||''});
   }else if(fields.action==='take'){
     const b=B.find(b=>b.id===fields.batch_id);if(b)b.q=Math.max(0,b.q-fields.packs_qty);
   }else if(fields.action==='product_settings'){
     const product=p||{id:fields.product_id,codes:{},barcodeSizes:{},names:{}};
-    Object.assign(product,{n:fields.name??p?.n,e:fields.emoji??p?.e??'📦',u:({kg:'кг',l:'л',pcs:'шт.'})[fields.unit]||p?.u||'кг',g:fields.monthly_usage_kg*1000,people:fields.people_count,months:fields.target_months,pack:fields.default_pack_weight*1000,life:fields.default_shelf_life_days,ov:fields.norm_packs_override});
+    Object.assign(product,{cat:fields.category??p?.cat??'',n:fields.name??p?.n,e:fields.emoji??p?.e??'📦',u:({kg:'кг',l:'л',pcs:'шт.'})[fields.unit]||p?.u||'кг',g:fields.monthly_usage_kg*1000,people:fields.people_count,months:fields.target_months,pack:fields.default_pack_weight*1000,life:fields.default_shelf_life_days,ov:fields.norm_packs_override});
     recalc(product);if(!p)P.push(product);
   }else if(fields.action==='barcode'&&p){
     p.codes[fields.pack_weight_kg]=fields.barcode;p.barcodeSizes[fields.barcode]=fields.pack_weight_kg;
@@ -641,6 +666,9 @@ function projectQueue(){
     }else optimisticFields(f);
   });
   for(const fields of normDrafts.values())optimisticFields(fields);
+  CATS=[...new Set([...(cloudLast.frontend.CATS||[]),...P.map(p=>p.cat)].filter(Boolean))];
+  LOCS=[...new Set([...(cloudLast.frontend.LOCS||[]),...B.map(b=>b.loc)].filter(Boolean))];
+  P.forEach(p=>{p.lastLoc=B.filter(b=>b.p===p.id&&b.loc).sort((a,b)=>(b.k||'').localeCompare(a.k||''))[0]?.loc||''});
 }
 async function cloudRequest(fields,pin=cloudPin){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),35000);
@@ -746,7 +774,7 @@ async function cloudMutate(fields,options={}){
 function canRebase(entry,reply){
   const f=entry.request,p=reply.frontend.P.find(p=>p.id===f.product_id),batch=reply.frontend.B.find(b=>b.id===f.batch_id);
   if(f.action==='add')return !!p&&!batch;
-  if(f.action==='take')return !!batch&&batch.q>=f.packs_qty&&(!entry.batchBefore||(batch.s===entry.batchBefore.s&&batch.p===entry.batchBefore.p&&batch.x===entry.batchBefore.x));
+  if(f.action==='take')return !!batch&&batch.q>=f.packs_qty&&(!entry.batchBefore||(batch.s===entry.batchBefore.s&&batch.p===entry.batchBefore.p&&batch.x===entry.batchBefore.x&&(batch.loc||'')===(entry.batchBefore.loc||'')));
   if(f.action==='barcode')return !!p&&(!f.batch_id||!!batch)&&!reply.state.Barcodes.some(b=>String(b.barcode)===f.barcode&&b.product_id!==f.product_id);
   if(f.action==='product_settings'){
     if(!entry.productBefore)return !p&&!reply.frontend.P.some(p=>p.n.toLowerCase()===f.name.toLowerCase());
@@ -790,13 +818,14 @@ function cloudLogout(){
   flushNorms();++cloudEpoch;cloudBusy=false;cloudAuthenticating=false;clearTimeout(retryTimer);forget('pin');cloudPin='';cloudOnline=false;cloudLast=null;cloudRevision=-1;
   P=[];B=[];uiRestored=false;cloudPhotos.clear();close();cloudSessionVisible(false);$('#cloudPin').value='';cloudLoginMessage('');
 }
-function settingsPayload(p){return {action:'product_settings',product_id:p.id,name:p.n,emoji:p.e,unit:({'кг':'kg','л':'l','шт.':'pcs'})[p.u],monthly_usage_kg:p.g/1000,people_count:p.people,target_months:p.months,default_pack_weight:p.pack/1000,default_shelf_life_days:p.life,norm_packs_override:p.ov||null};}
+function settingsPayload(p){return {action:'product_settings',product_id:p.id,name:p.n,category:p.cat||'',emoji:p.e,unit:({'кг':'kg','л':'l','шт.':'pcs'})[p.u],monthly_usage_kg:p.g/1000,people_count:p.people,target_months:p.months,default_pack_weight:p.pack/1000,default_shelf_life_days:p.life,norm_packs_override:p.ov||null};}
 function productEditor(id){
   const p=P.find(p=>p.id===id),hasStock=p&&info(p).packs>0;
   S={editorId:id||'',mode:'editor'};
   const unit=p?({'кг':'kg','л':'l','шт.':'pcs'})[p.u]:'kg';
   show(`<form id="productForm"><div class="top3"><h2>${p?'Редагувати продукт':'Новий продукт'}</h2><button type="button" data-close aria-label="Закрити">✕</button></div>
   <label class="editor-field">Назва<input id="productName" required maxlength="100" value="${esc(p?.n||'')}" placeholder="Наприклад, Олія соняшникова"></label>
+  <label class="editor-field">Категорія<input id="productCategory" maxlength="100" list="categoryOptions" value="${esc(p?.cat||'')}"><datalist id="categoryOptions">${CATS.map(c=>`<option value="${esc(c)}">`).join('')}</datalist></label>
   <div class="two"><label class="editor-field">Емодзі<input id="productEmoji" maxlength="16" required value="${esc(p?.e||'📦')}"></label>
   <label class="editor-field">Одиниця<select id="productUnit" ${hasStock?'disabled':''}>${[['kg','Кілограми'],['l','Літри'],['pcs','Штуки']].map(([v,t])=>`<option value="${v}" ${unit===v?'selected':''}>${t}</option>`).join('')}</select></label></div>
   <label class="editor-field">Типова фасовка, кг / л / шт.<input id="productPack" type="number" inputmode="decimal" min="0.000001" step="any" value="${p?p.pack/1000:1}" required></label>
@@ -807,9 +836,17 @@ function productEditor(id){
     if(!name||!emoji||!(pack>0)){toast('Перевірте назву, емодзі та фасовку.');return}
     const current=P.find(item=>item.id===productId)||p;
     const fields=current?settingsPayload(current):{action:'product_settings',product_id:productId,monthly_usage_kg:0,people_count:1,target_months:3,default_shelf_life_days:365,store_buffer_days:0,norm_packs_override:null};
-    Object.assign(fields,{name,emoji,unit:$('#productUnit').value,default_pack_weight:pack});
+    if($('#productCategory').value.trim()!==(p?.cat||'')&&!cloudSupportsV5()){toast('Оновіть Apps Script для збереження категорій.');return}
+    Object.assign(fields,{category:$('#productCategory').value.trim(),name,emoji,unit:$('#productUnit').value,default_pack_weight:pack});
     await cloudMutate(fields,{message:p?'Продукт оновлено':'Продукт додано',enqueued(){close()}});
   };
+}
+function cloudSupportsV5(){return cloudLast?.features?.includes('categories_locations')===true}
+function cloudSetCategory(id,value){
+  if(!cloudSupportsV5()){toast('Оновіть Apps Script для збереження категорій.');renderNorms();return}
+  const p=P.find(p=>String(p.id)===String(id)),name=value.trim();if(!p||name==='__new'||name.length>100)return;
+  p.cat=CATS.find(c=>c.toLowerCase()===name.toLowerCase())||name;
+  CATS=[...new Set([...CATS,p.cat].filter(Boolean))];queueNorm(p);render();renderNorms();
 }
 function queueNorm(p){normDrafts.set(p.id,settingsPayload(p));cloudStatus('Є незбережені зміни норм…');clearTimeout(normTimer);normTimer=setTimeout(flushNorms,650);}
 async function flushNorms(){
@@ -820,7 +857,9 @@ async function cloudAdd(){
   if(!cloudCanChange())return;
   await flushNorms();
   const form=S.f,p=P.find(p=>p.id===S.pid);if(!form||!p)return;
-  const batchId=crypto.randomUUID(),fields={action:'add',product_id:p.id,batch_id:batchId,packs_qty:form.n,pack_weight_kg:form.s,added_date:off(0),barcode:form.code||p.codes[form.s]||'',save_barcode:true,pack_name:form.name,expiry_date:form.x||undefined,photo_base64:form.photo||undefined};
+  if(S.addLoc){const loc=(S.locDraft||'').trim();if(!loc){$('#nloc').focus();return}form.loc=loc;}
+  if((form.loc||'')&&!cloudSupportsV5()){toast('Оновіть Apps Script для збереження місця.');return}
+  const batchId=crypto.randomUUID(),fields={action:'add',product_id:p.id,batch_id:batchId,packs_qty:form.n,pack_weight_kg:form.s,added_date:off(0),barcode:form.code||p.codes[form.s]||'',save_barcode:true,storage_location:form.loc||'',is_estimated_expiry:!!form.estimated,pack_name:form.name,expiry_date:form.x||undefined,photo_base64:form.photo||undefined};
   await cloudMutate(fields,{message:`Додано ${form.n} ${pk(form.n)} · ${p.n}`,enqueued(){if(S.f===form)close()}});
 }
 async function cloudTake(index){
@@ -863,6 +902,9 @@ async function cloudLoadPhotos(){
   }
 }
 function installCloudEvents(){
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Enter'&&e.target.dataset.catinput!==undefined){e.preventDefault();e.stopImmediatePropagation();cloudSetCategory(e.target.dataset.catinput,e.target.value)}
+  },true);
   document.addEventListener('click',e=>{
     if(e.target.matches?.('[data-name-product]')){e.stopImmediatePropagation();return;}
     const normRow=e.target.closest('.nrow:not(.nhead)');
@@ -872,7 +914,13 @@ function installCloudEvents(){
     const button=e.target.closest('button,[data-tk]');if(!button)return;
     const d=button.dataset;
     if(d.tab){e.preventDefault();e.stopImmediatePropagation();setActiveTab(d.tab);return;}
-    if(d.f){e.preventDefault();e.stopImmediatePropagation();filter=d.f;uiPrefs.filter=d.f;saveUiPrefs();render();return;}
+    if(d.f||d.fc!==undefined||d.fs2){
+      e.preventDefault();e.stopImmediatePropagation();
+      if(d.f){filterCat=null;filterSt.clear()}else if(d.fc!==undefined)filterCat=filterCat===d.fc?null:d.fc;
+      else{const on=filterSt.has(d.fs2);filterSt.clear();if(!on)filterSt.add(d.fs2)}
+      uiPrefs.category=filterCat;uiPrefs.statuses=[...filterSt];uiPrefs.filter='all';saveUiPrefs();render();return;
+    }
+    if(d.catok!==undefined){e.preventDefault();e.stopImmediatePropagation();const input=document.querySelector('[data-catinput="'+CSS.escape(d.catok)+'"]');cloudSetCategory(d.catok,input.value);return;}
     if('editProduct'in d||'newProduct'in d){e.preventDefault();e.stopImmediatePropagation();productEditor(d.editProduct||'');return;}
     if('go'in d||'tk'in d||'save'in d||'rst'in d){
       e.preventDefault();e.stopImmediatePropagation();
@@ -897,6 +945,12 @@ function installCloudEvents(){
     if(key==='packs'){const n=Math.max(1,Math.round(value));p.ov=n===p.calc?null:n;}else p[key]=value;
     recalc(p);updRes(p);render();queueNorm(p);
     if(input.classList.contains('ei'))input.style.width=Math.max(2,input.value.length+1)+'ch';
+  },true);
+  document.addEventListener('change',e=>{
+    if(e.target.dataset.cat===undefined)return;
+    e.stopImmediatePropagation();const select=e.target,box=select.closest('.nf-cat').querySelector('.catnew');
+    if(select.value==='__new'){box.hidden=false;box.querySelector('input').focus();return}
+    box.hidden=true;cloudSetCategory(select.dataset.cat,select.value);
   },true);
   document.addEventListener('focusout',e=>{if(e.target.dataset.ne!==undefined||e.target.dataset.nameProduct!==undefined)flushNorms()});
   $('#q').addEventListener('input',()=>{uiPrefs.query=$('#q').value;saveUiPrefs();});
