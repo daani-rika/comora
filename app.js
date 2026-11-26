@@ -584,9 +584,11 @@ async function confirmCatalog(code,result,context){
   drawOp();
 }
 
-const WEB_APP_URL='https://script.google.com/macros/s/AKfycbynGGRQY2DmrbHzpX77Is_bftrgM6rrZa7o8Dbcbyyi7OHWYXl_lwp-yyNR7mB-LYr_sQ/exec';
+const WEB_APP_URL='https://script.google.com/macros/s/AKfycbyfWCBX8_1EwDEVUs3yikBx6KPU3k-F1VYXzOBcSTJj0twxwN6hs5cjXiVfpqo32gQ2/exec';
 const CLOUD=!new URLSearchParams(location.search).has('demo');
-const CLOUD_KEY='komora-cloud-v2:'+WEB_APP_URL.split('/').at(-2)+':';
+// Keep this pantry's original storage namespace when replacing its deployment.
+// Saved login, UI preferences and in-flight request IDs must survive a URL change.
+const CLOUD_KEY='komora-cloud-v2:AKfycbynGGRQY2DmrbHzpX77Is_bftrgM6rrZa7o8Dbcbyyi7OHWYXl_lwp-yyNR7mB-LYr_sQ:';
 let cloudPin='',cloudRevision=-1,cloudBusy=false,cloudOnline=false,cloudLast=null,cloudPending=null,cloudPendingOptions=null,cloudEpoch=0,cloudPolling=false;
 let normTimer,undoTimer,retryTimer,cloudAuthenticating=false;
 let cloudQueue=[];
