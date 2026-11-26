@@ -918,6 +918,14 @@ function productEditor(id){
   };
 }
 function cloudSupportsV5(){return cloudLast?.features?.includes('categories_locations')===true}
+async function cloudSupportsPhotoEditor(){
+  if(cloudLast?.features?.includes('safe_barcode_photos'))return true;
+  const epoch=cloudEpoch;
+  try{
+    const reply=await cloudRequest({action:'snapshot'});if(epoch!==cloudEpoch)return null;
+    cloudApply(reply,{paint:false,keepTake:true});return cloudLast?.features?.includes('safe_barcode_photos')===true;
+  }catch(error){toast(error.code?error.message:'Не вдалося перевірити сервер. Перевірте зв’язок і спробуйте ще раз.');return null}
+}
 function cloudSetCategory(id,value){
   if(!cloudSupportsV5()){toast('Оновіть Apps Script для збереження категорій.');renderNorms();return}
   const p=P.find(p=>String(p.id)===String(id)),name=value.trim();if(!p||name==='__new'||name.length>100)return;
@@ -1214,9 +1222,14 @@ function batchEditor(id){
     e.preventDefault();if(S.photoBusy){toast('Фото ще стискається. Зачекайте мить.');return}if(S.submitting)return;
     const expiry=$('#batchExpiry').value,loc=$('#batchLocation').value.trim(),name=$('#batchName').value.trim(),qty=Number($('#batchQty').value.replace(',','.')),weight=Number($('#batchWeight').value.replace(',','.')),added=$('#batchAdded').value,code=$('#batchBarcode').value.trim();
     if(!expiry||!added||!name||!(qty>0)||!(weight>0)){toast('Перевірте поля партії.');return}
-    const current=B.find(item=>item.id===id);if(!current){toast('Цієї партії вже немає.');return}
-    if(CLOUD&&S.editPhoto&&code&&!cloudLast?.features?.includes('safe_barcode_photos')){toast('Оновіть Apps Script для заміни фото без перезапису інших пачок.');return}
     const session=S;session.submitting=true;
+    if(CLOUD&&S.editPhoto&&code){
+      const supported=await cloudSupportsPhotoEditor();
+      if(S!==session||$('#batchForm')!==form)return;
+      if(!supported){session.submitting=false;if(supported===false)toast('Оновіть Apps Script для заміни фото без перезапису інших пачок.');return}
+    }
+    const current=B.find(item=>item.id===id);if(!current){session.submitting=false;toast('Цієї партії вже немає.');return}
+    if(['q','s','k','x','loc','code','name','own_photo_file_id'].some(key=>(current[key]??'')!==(b[key]??''))){session.submitting=false;toast('Партію змінили на іншому пристрої. Відкрийте її заново, щоб перевірити дані.');return}
     if(CLOUD){const accepted=await cloudMutate({action:'edit',product_id:p.id,batch_id:id,packs_qty:qty,pack_weight_kg:weight,pack_name:name,added_date:added,expiry_date:expiry,is_estimated_expiry:expiry===current.x?!!current.estimated:false,storage_location:loc,barcode:code,photo_base64:S.editPhoto||undefined,remove_photo:!!S.removeBatchPhoto,replace_barcode_photo:$('#batchReplaceShared').checked},{message:'Пачку оновлено',enqueued(){clearMobileDraft();opSheet(p.id,'take')}});if(!accepted)session.submitting=false;}
     else{Object.assign(current,{q:qty,s:weight,name,k:added,x:expiry,loc,code,estimated:false,...(S.editPhoto?{photo:S.editPhoto}:{}),...(S.removeBatchPhoto?{photo:''}:{})});clearMobileDraft();render();opSheet(p.id,'take')}
   };
