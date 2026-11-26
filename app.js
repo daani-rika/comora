@@ -80,7 +80,7 @@ function add(pid,s,n,x,k){
   g?g.q+=n:B.push({p:pid,s,x,q:n,k});
   toast(`Додано ${n} × ${size(s,p.u)} · ${esc(p.n)}`,before);render();
 }
-const close=()=>{if(typeof cancelCatalog==='function')cancelCatalog();$('#ov').hidden=true;S.back=false;stopCam()};
+const close=()=>{if(typeof clearMobileDraft==='function')clearMobileDraft();if(typeof cancelCatalog==='function')cancelCatalog();$('#ov').hidden=true;S.back=false;stopCam()};
 const show=h=>{$('#sheet').innerHTML=h;$('#sheet').className='sheet';$('#ov').hidden=false};
 
 // ===== аркуш продукту: взяти / додати =====
@@ -176,7 +176,7 @@ function drawAdd(p,i){
   if(f.loc===undefined)f.loc=p.lastLoc||'';
   if(!f.x){f.estimated=true;const b=new Date(plus(off(0),p.life));f.x=new Date(Date.UTC(b.getUTCFullYear(),b.getUTCMonth()+1,0)).toISOString().slice(0,10)}
   const sizes=[...new Set([1,...Object.keys(p.codes).map(Number),...i.bs.map(b=>b.s),f.s])].sort((a,b)=>b-a);
-  const d=new Date(f.x),yy=d.getUTCFullYear(),yrs=Array.from({length:8},(_,k)=>today().getFullYear()+k);if(!yrs.includes(yy))yrs.push(yy);
+  const d=new Date(f.x),yy=d.getUTCFullYear(),yrs=Array.from({length:today().getFullYear()+21-1900},(_,k)=>1900+k);if(!yrs.includes(yy))yrs.push(yy);
   const locs=[...new Set([...LOCS,...B.map(b=>b.loc).filter(Boolean)])];
   const chips=S.sz?`<div class="sz" style="margin:0">${sizes.map(s=>`<button data-fs="${s}" aria-pressed="${s===f.s}">${size(s,p.u)}</button>`).join('')}${S.addSz?'':'<button data-nsz>інша</button>'}</div>${S.addSz?`<div class="tools"><input id="nsz" inputmode="decimal" placeholder="Розмір, ${p.u}"><button data-nszok>OK</button></div>`:''}`:'';
   show(head+`<div class="ac3 col">
@@ -217,7 +217,8 @@ function scanSheet(mode){
   <div class="cam" id="cam"></div><p id="scanStatus" class="scan-status" role="status">Запит доступу до камери…</p>
   <div class="scan-tools"><button id="torch" hidden aria-pressed="false">Ліхтарик</button><button id="retryScan" hidden>Увімкнути камеру</button><label>Фото штрих-коду<input id="barcodePhoto" type="file" accept="image/*" capture="environment" hidden></label>${S.back?'<button id="scanBack">Назад</button>':''}</div>
   <input id="code" inputmode="numeric" autocomplete="off" placeholder="або введіть код вручну" aria-label="Штрих-код">
-  <button class="pri" style="width:100%;margin-top:8px" data-lookup>Знайти</button>`);
+  <button class="pri" style="width:100%;margin-top:8px" data-lookup>Знайти</button>${typeof recentBarcodeHtml==='function'?recentBarcodeHtml():''}`);
+  if(typeof saveMobileDraft==='function')saveMobileDraft({scanner:true});
   $('#retryScan').onclick=startScanner;
   if($('#scanBack'))$('#scanBack').onclick=async()=>{await stopCam();S.back=false;drawOp()};
   $('#torch').onclick=async()=>{
@@ -246,7 +247,7 @@ async function startScanner(){
   const current=new Html5Qrcode('cam',{formatsToSupport:[Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E,Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.CODE_39,Html5QrcodeSupportedFormats.ITF],verbose:false});
   scanner=current;let found=false;
   // Serialize teardown after a pending permission/start request as well.
-  const starting=current.start({facingMode:'environment'},{fps:10},code=>{
+  const starting=current.start({facingMode:'environment'},{fps:5,videoConstraints:{facingMode:{ideal:'environment'},width:{ideal:640},height:{ideal:480}}},code=>{
     if(found||token!==scanSession)return;found=true;lookup(code);
   },()=>{});
   cameraWork=starting.catch(()=>{});
@@ -263,12 +264,23 @@ async function scanPhoto(file){
   await stopCam();const token=scanSession;
   const status=$('#scanStatus');if(!status)return;
   status.textContent='Зчитую штрих-код із фото…';
+  let reader,bitmap;
   try{
     if(!window.Html5Qrcode)throw Error('Бібліотека недоступна');
-    $('#cam').innerHTML='';const reader=new Html5Qrcode('cam');
+    if(typeof createImageBitmap==='function'){
+      try{
+        bitmap=await createImageBitmap(file,{resizeWidth:1280,resizeQuality:'high',imageOrientation:'from-image'});
+        const c=document.createElement('canvas'),scale=Math.min(1,1280/Math.max(bitmap.width,bitmap.height));c.width=Math.max(1,Math.round(bitmap.width*scale));c.height=Math.max(1,Math.round(bitmap.height*scale));c.getContext('2d').drawImage(bitmap,0,0,c.width,c.height);
+        const blob=await new Promise(resolve=>c.toBlob(resolve,'image/jpeg',.85));if(blob)file=new File([blob],'barcode.jpg',{type:'image/jpeg'});
+        c.width=c.height=0;bitmap.close();bitmap=null;
+      }catch(_){}
+    }
+    if(token!==scanSession)return;
+    $('#cam').innerHTML='';reader=new Html5Qrcode('cam');
     const code=await reader.scanFile(file,true);reader.clear();
     if(token===scanSession)await lookup(code);
   }catch(_){if(token===scanSession){status.textContent='Код не знайдено на фото. Спробуйте ближче, без відблисків, або введіть номер вручну.';$('#retryScan').hidden=false}}
+  finally{bitmap?.close?.();try{reader?.clear()}catch(_){}}
 }
 async function lookup(raw){
   const code=String(raw||'').trim();
@@ -286,7 +298,12 @@ async function lookup(raw){
       }
       const same=p.id===context.pid;
       opSheet(p.id,'add',code);
-      if(same&&context.f){S.f.n=context.f.n||1;S.f.x=context.f.x||'';S.f.photo=context.f.photo||'';drawOp()}
+      if(same&&context.f){
+        Object.assign(S.f,context.f,{s:sz,code,name:p.names?.[code]||context.f.name||pname(p,sz)});
+        if(context.f.code&&context.f.code!==code&&!context.f.photoChanged){S.f.photo='';S.f.photo_file_id=''}
+        drawOp();
+      }
+      if(typeof rememberBarcode==='function')rememberBarcode(p,code,sz);
       if(context.pid&&!same)toast('За штрих-кодом: '+esc(p.n));
       return;
     }
@@ -297,28 +314,35 @@ async function attachPhoto(file){
   if(!S.f||!file)return;
   const form=S.f;
   if(file.size>25*1024*1024){toast('Фото завелике. Виберіть файл до 25 МБ');return}
-  const url=URL.createObjectURL(file);
+  if(typeof saveMobileDraft==='function')saveMobileDraft();
+  form.photoBusy=true;drawOp();
+  let url,image;
   try{
-    const image=new Image();image.src=url;await image.decode();
+    await stopCam();
+    // Decode to a bounded bitmap where supported instead of holding a full camera image.
+    if(typeof createImageBitmap==='function'){
+      try{image=await createImageBitmap(file,{resizeWidth:400,resizeQuality:'medium',imageOrientation:'from-image'})}catch(_){}
+    }
+    if(!image){url=URL.createObjectURL(file);image=new Image();image.src=url;await image.decode()}
     const photo=compactPhoto(image);
     if(S.f!==form||$('#ov').hidden)return;
-    form.photo=photo;drawOp();
+    form.photo=photo;form.photo_file_id='';form.photoChanged=true;
   }catch(_){toast('Не вдалося відкрити фото. Виберіть JPEG, PNG або інше підтримуване зображення.')}
-  finally{URL.revokeObjectURL(url)}
+  finally{form.photoBusy=false;image?.close?.();if(url){image.src='';URL.revokeObjectURL(url)}if(S.f===form&&!$('#ov').hidden)drawOp()}
 }
 function compactPhoto(image){
   const canvas=document.createElement('canvas');
-  let edge=1000;
+  let edge=400;
   for(let pass=0;pass<5;pass++){
     const scale=Math.min(1,edge/Math.max(image.width,image.height));
     canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));
     canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);
-    for(const quality of [.82,.72,.62,.5]){
+    for(const quality of [.72,.6,.48,.36]){
       const photo=canvas.toDataURL('image/jpeg',quality);
       if(!photo.startsWith('data:image/jpeg;base64,'))throw Error('JPEG not supported');
       const raw=photo.slice(photo.indexOf(',')+1);
       const bytes=raw.length*3/4-(raw.endsWith('==')?2:raw.endsWith('=')?1:0);
-      if(bytes<=200*1024)return photo;
+      if(bytes<=40*1024)return photo;
     }
     edge=Math.round(edge*.8);
   }
@@ -532,16 +556,16 @@ async function catalogLookup(code,context){
 }
 function showCatalogChoice(code,result,state){
   catalogCurrent=result;
-  const context=catalogContext||{},suggested=suggestedCatalogProduct(result);
+  const context=catalogContext||{},selected=P.find(p=>String(p.id)===String(context.pid)),suggested=selected?String(selected.id):suggestedCatalogProduct(result);
   const heading={found:'Знайдено товар',missing:'Код не знайдено',offline:'Каталог недоступний',rate:'Пошук тимчасово обмежено',manual:'Новий штрих-код'}[state];
   show(`<form id="catalogForm"><div class="row"><h2>${heading}</h2><button type="button" data-close aria-label="Закрити">✕</button></div>
   <p class="bcn">${esc(code)}</p>
   ${result?.image?`<img class="catalog-photo" src="${esc(result.image)}" alt="Упаковка з каталогу" referrerpolicy="no-referrer">`:''}
   ${result?`<div class="catalog-source"><a href="${esc(result.source)}" target="_blank" rel="noopener noreferrer">Open Food Facts</a>${result.brands?` · ${esc(result.brands)}`:''}${result.image?' · <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener noreferrer">Фото CC BY-SA</a>':''}</div>`:''}
   <label class="editor-field">Продукт у коморі<select id="catalogProduct" required><option value="">Оберіть продукт</option>${P.slice().sort((a,b)=>a.n.localeCompare(b.n,'uk')).map(p=>`<option value="${esc(p.id)}" ${String(p.id)===suggested?'selected':''}>${esc(p.n)}</option>`).join('')}</select></label>
-  <label class="editor-field">Назва на упаковці<input id="catalogName" maxlength="200" value="${esc(result?.name||'')}" placeholder="Назва продукту"></label>
-  <div class="two"><label class="editor-field">Вага / об’єм пачки<input id="catalogWeight" inputmode="decimal" required value="${result?.size?.weight||''}" placeholder="${esc(result?.quantity||'Наприклад, 0,9')}"></label>
-  <label class="editor-field">Одиниця<select id="catalogUnit">${[['kg','Кілограми'],['l','Літри'],['pcs','Штуки']].map(([u,t])=>`<option value="${u}" ${u===(result?.size?.unit||'kg')?'selected':''}>${t}</option>`).join('')}</select></label></div>
+  <label class="editor-field">Назва на упаковці<input id="catalogName" maxlength="200" value="${esc(result?.name||context.f?.name||selected?.n||'')}" placeholder="Назва продукту"></label>
+  <div class="two"><label class="editor-field">Вага / об’єм пачки<input id="catalogWeight" inputmode="decimal" required value="${result?.size?.weight||context.f?.s||selected?.seg||''}" placeholder="${esc(result?.quantity||'Наприклад, 0,9')}"></label>
+  <label class="editor-field">Одиниця<select id="catalogUnit">${[['kg','Кілограми'],['l','Літри'],['pcs','Штуки']].map(([u,t])=>`<option value="${u}" ${u===(result?.size?.unit||(selected?catalogUnit(selected):'kg'))?'selected':''}>${t}</option>`).join('')}</select></label></div>
   <p id="catalogError" class="catalog-error" role="status"></p>
   <button class="pri" id="catalogConfirm" type="submit" style="width:100%">${context.mode==='take'?'Прив’язати код':'Підтвердити товар'}</button>
   <button id="catalogNorms" type="button" class="catalog-norms">Норми та розрахунки</button></form>`);
@@ -553,6 +577,17 @@ function showCatalogChoice(code,result,state){
   };
   $('#catalogNorms').onclick=()=>{cancelCatalog();close();if(typeof setActiveTab==='function')setActiveTab('n');else document.querySelector('[data-tab="n"]').click()};
   $('#catalogForm').onsubmit=e=>{e.preventDefault();confirmCatalog(code,result,context)};
+  if(typeof saveMobileDraft==='function')saveMobileDraft();
+  if(result?.image)prefetchCatalogPhoto(result);
+}
+const catalogPhotoJobs=new Map();
+function prefetchCatalogPhoto(result){
+  if(!result?.image)return Promise.resolve('');
+  if(!catalogPhotoJobs.has(result.image)){
+    if(catalogPhotoJobs.size>=8)catalogPhotoJobs.delete(catalogPhotoJobs.keys().next().value);
+    catalogPhotoJobs.set(result.image,catalogPhoto(result));
+  }
+  return catalogPhotoJobs.get(result.image);
 }
 async function catalogPhoto(result){
   if(!result?.image)return '';
@@ -571,7 +606,7 @@ async function confirmCatalog(code,result,context){
   if(context.mode==='take'&&(p.id!==context.pid||weight!==context.tile?.s)){$('#catalogError').textContent='Цей товар не відповідає обраній пачці.';return}
   const name=$('#catalogName').value.trim()||p.n,token=catalogSequence,form=$('#catalogForm');
   $('#catalogConfirm').disabled=true;
-  const same=p.id===context.pid,photo=same&&context.f?.photo?context.f.photo:await catalogPhoto(result);
+  const same=p.id===context.pid,reusePhoto=same&&(!context.f?.code||context.f.code===code||context.f.photoChanged),photo=reusePhoto&&context.f?.photo?context.f.photo:await prefetchCatalogPhoto(result);
   if(token!==catalogSequence||$('#ov').hidden||$('#catalogForm')!==form)return;
   if(context.mode==='take'){
     S=context;S.back=true;
@@ -580,7 +615,8 @@ async function confirmCatalog(code,result,context){
     return;
   }
   opSheet(p.id,'add');
-  S.stage='card';S.f={s:weight,n:same?(context.f?.n||1):1,x:same?(context.f?.x||''):'',code,name,photo,catalogSource:result?.source||''};
+  S.stage='card';S.f={...(same?context.f:{}),s:weight,n:same?(context.f?.n||1):1,x:same?(context.f?.x||''):'',code,name,photo,catalogSource:result?.source||''};
+  if(!reusePhoto){S.f.photo_file_id='';S.f.photoChanged=false}
   drawOp();
 }
 
@@ -603,7 +639,7 @@ function forget(key){try{localStorage.removeItem(CLOUD_KEY+key)}catch(_){}}
 function cloudStatus(message){const el=$('#syncText');if(el)el.textContent=message;}
 function readUiPrefs(){
   let value;try{value=JSON.parse(stored('ui')||'null')}catch(_){}
-  return {tab:value?.tab==='n'?'n':'p',expanded:Array.isArray(value?.expanded)?value.expanded.filter(x=>typeof x==='string'):[],query:typeof value?.query==='string'?value.query:'',category:typeof value?.category==='string'?value.category:null,statuses:Array.isArray(value?.statuses)?value.statuses.filter(x=>['low','excess'].includes(x)):[],filter:['all','low','excess'].includes(value?.filter)?value.filter:'all',scroll:value?.scroll&&typeof value.scroll==='object'?value.scroll:{}};
+  return {tab:value?.tab==='n'?'n':'p',expanded:Array.isArray(value?.expanded)?value.expanded.filter(x=>typeof x==='string'):[],query:typeof value?.query==='string'?value.query:'',category:typeof value?.category==='string'?value.category:null,statuses:Array.isArray(value?.statuses)?value.statuses.filter(x=>['low','excess','expired'].includes(x)):[],filter:['all','low','excess'].includes(value?.filter)?value.filter:'all',scroll:value?.scroll&&typeof value.scroll==='object'?value.scroll:{}};
 }
 function saveUiPrefs(){try{storeValue('ui',JSON.stringify(uiPrefs))}catch(_){}}
 function rememberExpandedRows(){uiPrefs.expanded=[...document.querySelectorAll('.nrow.open [data-nx]')].map(el=>String(el.dataset.nx));saveUiPrefs();}
@@ -643,8 +679,11 @@ function optimisticFields(fields){
     if(!p||B.some(b=>b.id===fields.batch_id))return;
     const raw=cloudLast?.state?.Products.find(x=>x.product_id===p.id);
     B.push({id:fields.batch_id,p:p.id,s:fields.pack_weight_kg,q:fields.packs_qty,k:fields.added_date||off(0),x:fields.expiry_date||plus(fields.added_date||off(0),p.life-Number(raw?.store_buffer_days||0)),loc:fields.storage_location||'',code:fields.barcode||'',name:fields.pack_name||'',photo:fields.photo_base64||cloudPhotos.get(fields.photo_file_id)||'',photo_file_id:fields.photo_file_id||''});
+    if(fields.barcode&&fields.save_barcode){p.codes[fields.pack_weight_kg]=fields.barcode;p.barcodeSizes[fields.barcode]=fields.pack_weight_kg;p.names={...p.names,[fields.barcode]:fields.pack_name||p.n};}
   }else if(fields.action==='take'){
     const b=B.find(b=>b.id===fields.batch_id);if(b)b.q=Math.max(0,b.q-fields.packs_qty);
+  }else if(fields.action==='edit'){
+    const b=B.find(b=>b.id===fields.batch_id);if(b)Object.assign(b,{q:fields.packs_qty,s:fields.pack_weight_kg,k:fields.added_date,x:fields.expiry_date,estimated:fields.is_estimated_expiry,loc:fields.storage_location??b.loc});
   }else if(fields.action==='product_settings'){
     const product=p||{id:fields.product_id,codes:{},barcodeSizes:{},names:{}};
     Object.assign(product,{cat:fields.category??p?.cat??'',n:fields.name??p?.n,e:fields.emoji??p?.e??'📦',u:({kg:'кг',l:'л',pcs:'шт.'})[fields.unit]||p?.u||'кг',g:fields.monthly_usage_kg*1000,people:fields.people_count,months:fields.target_months,pack:fields.default_pack_weight*1000,life:fields.default_shelf_life_days,ov:fields.norm_packs_override});
@@ -664,6 +703,7 @@ function projectQueue(){
       const target=entry.inverse;
       if(target?.request.action==='add'){const b=B.find(b=>b.id===target.request.batch_id);if(b)b.q=Math.max(0,b.q-target.request.packs_qty);}
       if(target?.request.action==='take'&&target.batchBefore){const b=B.find(b=>b.id===target.batchBefore.id);if(b)b.q+=target.request.packs_qty;else B.push({...target.batchBefore,q:target.request.packs_qty});}
+      if(target?.request.action==='edit'&&target.batchBefore){const index=B.findIndex(b=>b.id===target.batchBefore.id);if(index>=0)B[index]={...target.batchBefore};}
       if(target?.request.action==='product_settings'&&target.productBefore){const i=P.findIndex(p=>p.id===target.productBefore.id);if(i>=0)P[i]={...target.productBefore};}
     }else optimisticFields(f);
   });
@@ -671,6 +711,7 @@ function projectQueue(){
   CATS=[...new Set([...(cloudLast.frontend.CATS||[]),...P.map(p=>p.cat)].filter(Boolean))];
   LOCS=[...new Set([...(cloudLast.frontend.LOCS||[]),...B.map(b=>b.loc)].filter(Boolean))];
   P.forEach(p=>{p.lastLoc=B.filter(b=>b.p===p.id&&b.loc).sort((a,b)=>(b.k||'').localeCompare(a.k||''))[0]?.loc||''});
+  P.forEach(p=>{p.photoRefs={...p.photoRefs};B.filter(b=>b.p===p.id&&b.code&&b.photo_file_id).forEach(b=>{if(!p.photoRefs[b.code])p.photoRefs[b.code]=b.photo_file_id});});
 }
 async function cloudRequest(fields,pin=cloudPin){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),35000);
@@ -778,6 +819,7 @@ function canRebase(entry,reply){
   if(f.action==='add')return !!p&&!batch;
   if(f.action==='take')return !!batch&&batch.q>=f.packs_qty&&(!entry.batchBefore||(batch.s===entry.batchBefore.s&&batch.p===entry.batchBefore.p&&batch.x===entry.batchBefore.x&&(batch.loc||'')===(entry.batchBefore.loc||'')));
   if(f.action==='barcode')return !!p&&(!f.batch_id||!!batch)&&!reply.state.Barcodes.some(b=>String(b.barcode)===f.barcode&&b.product_id!==f.product_id);
+  if(f.action==='edit')return !!batch&&!!entry.batchBefore&&['id','p','s','q','x','k','loc','code','photo_file_id'].every(key=>(batch[key]||'')===(entry.batchBefore[key]||''));
   if(f.action==='product_settings'){
     if(!entry.productBefore)return !p&&!reply.frontend.P.some(p=>p.n.toLowerCase()===f.name.toLowerCase());
     return !!p&&JSON.stringify(settingsPayload(p))===JSON.stringify(settingsPayload(entry.productBefore));
@@ -793,6 +835,9 @@ async function cloudSendPending(){
       if(!entry.sent){request.revision=cloudRevision;entry.sent=true;saveQueue();}
       try{
         const reply=await cloudRequest(request);if(epoch!==cloudEpoch)return false;
+        if(request.photo_base64&&typeof cachePhoto==='function'){
+          const file=reply.frontend.B.find(b=>b.id===request.batch_id)?.photo_file_id;if(file)cachePhoto(file,request.photo_base64);
+        }
         cloudQueue.shift();saveQueue();cloudOnline=true;
         cloudApply(reply,{keepTake:true});
         queuedOptions.get(request.request_id)?.after?.(reply,request.request_id);queuedOptions.delete(request.request_id);
@@ -858,11 +903,15 @@ async function flushNorms(){
 async function cloudAdd(){
   if(!cloudCanChange())return;
   await flushNorms();
-  const form=S.f,p=P.find(p=>p.id===S.pid);if(!form||!p)return;
+  const form=S.f,p=P.find(p=>p.id===S.pid);if(!form||!p||form.submitting)return;
+  if(form.photoBusy){toast('Фото ще стискається. Зачекайте мить.');return}
   if(S.addLoc){const loc=(S.locDraft||'').trim();if(!loc){$('#nloc').focus();return}form.loc=loc;}
   if((form.loc||'')&&!cloudSupportsV5()){toast('Оновіть Apps Script для збереження місця.');return}
-  const batchId=crypto.randomUUID(),fields={action:'add',product_id:p.id,batch_id:batchId,packs_qty:form.n,pack_weight_kg:form.s,added_date:off(0),barcode:form.code||p.codes[form.s]||'',save_barcode:true,storage_location:form.loc||'',is_estimated_expiry:!!form.estimated,pack_name:form.name,expiry_date:form.x||undefined,photo_base64:form.photo||undefined};
-  await cloudMutate(fields,{message:`Додано ${form.n} ${pk(form.n)} · ${p.n}`,enqueued(){if(S.f===form)close()}});
+  const batchId=form.batch_id||crypto.randomUUID(),code=form.code||p.codes[form.s]||'',photoId=form.photoChanged?'':form.photo_file_id||(typeof barcodePhotoRef==='function'?barcodePhotoRef(p,code):''),fields={action:'add',product_id:p.id,batch_id:batchId,packs_qty:form.n,pack_weight_kg:form.s,added_date:off(0),barcode:code,save_barcode:true,storage_location:form.loc||'',is_estimated_expiry:!!form.estimated,pack_name:form.name,expiry_date:form.x||undefined,photo_file_id:photoId||undefined,photo_base64:photoId?undefined:form.photo||undefined};
+  form.batch_id=batchId;form.submitting=true;if(typeof saveMobileDraft==='function')saveMobileDraft();
+  if(code&&typeof rememberBarcode==='function')rememberBarcode(p,code,form.s);
+  const accepted=await cloudMutate(fields,{message:`Додано ${form.n} ${pk(form.n)} · ${p.n}`,enqueued(){if(S.f===form)close()}});
+  if(!accepted)form.submitting=false;
 }
 async function cloudTake(index){
   if(!cloudCanChange())return;
@@ -920,6 +969,7 @@ function installCloudEvents(){
       e.preventDefault();e.stopImmediatePropagation();
       if(d.f){filterCat=null;filterSt.clear()}else if(d.fc!==undefined)filterCat=filterCat===d.fc?null:d.fc;
       else{const on=filterSt.has(d.fs2);filterSt.clear();if(!on)filterSt.add(d.fs2)}
+      if(filterSt.has('expired')&&filterCat&&!P.some(p=>p.cat===filterCat&&info(p).bs.some(b=>daysTo(b.x)<0)))filterCat=null;
       uiPrefs.category=filterCat;uiPrefs.statuses=[...filterSt];uiPrefs.filter='all';saveUiPrefs();render();return;
     }
     if(d.catok!==undefined){e.preventDefault();e.stopImmediatePropagation();const input=document.querySelector('[data-catinput="'+CSS.escape(d.catok)+'"]');cloudSetCategory(d.catok,input.value);return;}
@@ -984,5 +1034,195 @@ function restoreSavedSession(){
     cloudLogin(pin,{allowCache:true});
   }
 }
+
+// Device-only drafts and thumbnails; never store the PIN in a draft or a photo key.
+const DEVICE_KEY=typeof CLOUD!=='undefined'&&CLOUD?CLOUD_KEY:'komora-demo:';
+let draftRestored=false,draftWarning=false,mediaDbPromise;
+function clearMobileDraft(){try{localStorage.removeItem(DEVICE_KEY+'draft')}catch(_){}}
+function saveMobileDraft(extra={}){
+  try{
+    if($('#ov').hidden||!S.pid||!['add','batch-edit'].includes(S.mode))return;
+    const draft={version:1,pid:S.pid,mode:S.mode,stage:S.stage,f:S.f?{...S.f,photoBusy:false,submitting:false}:undefined,...extra};
+    if($('#catalogForm')){
+      draft.catalog={code:catalogCurrent?.code||$('#sheet .bcn')?.textContent||'',result:catalogCurrent,context:catalogContext,
+        values:Object.fromEntries(['catalogProduct','catalogName','catalogWeight','catalogUnit'].map(id=>[id,$('#'+id)?.value||'']))};
+    }
+    if(S.mode==='batch-edit')draft.edit={id:S.editBatchId,x:$('#batchExpiry')?.value,loc:$('#batchLocation')?.value};
+    localStorage.setItem(DEVICE_KEY+'draft',JSON.stringify(draft));
+  }catch(_){if(!draftWarning){draftWarning=true;toast('Не вдалося зберегти чернетку на пристрої.')}}
+}
+function restoreMobileDraft(){
+  if(draftRestored||!P.length)return;draftRestored=true;
+  let draft;try{draft=JSON.parse(localStorage.getItem(DEVICE_KEY+'draft')||'null')}catch(_){}
+  if(draft?.version!==1||!P.some(p=>String(p.id)===String(draft.pid)))return;
+  if(draft.f?.batch_id&&(B.some(b=>b.id===draft.f.batch_id)||typeof cloudQueue!=='undefined'&&cloudQueue.some(entry=>entry.request.batch_id===draft.f.batch_id))){clearMobileDraft();return}
+  if(draft.mode==='batch-edit'){
+    if(B.some(b=>b.id===draft.edit?.id)){batchEditor(draft.edit.id);if(draft.edit.x)$('#batchExpiry').value=draft.edit.x;if(draft.edit.loc!==undefined)$('#batchLocation').value=draft.edit.loc;saveMobileDraft()}
+    return;
+  }
+  S={pid:resolveProductId(draft.pid),mode:'add',stage:draft.f?'card':'start',f:draft.f};
+  if(draft.catalog){
+    catalogContext={...draft.catalog.context,pid:S.pid,mode:'add',f:draft.f};
+    showCatalogChoice(draft.catalog.code,draft.catalog.result,'manual');
+    for(const [id,value] of Object.entries(draft.catalog.values||{})){if($('#'+id))$('#'+id).value=value}
+    saveMobileDraft();
+  }else drawOp();
+}
+function mediaDb(){
+  if(!mediaDbPromise)mediaDbPromise=new Promise((resolve,reject)=>{
+    const request=indexedDB.open('komora-device-thumbnails',1);
+    request.onupgradeneeded=()=>request.result.createObjectStore('photos');
+    request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);
+  });
+  return mediaDbPromise;
+}
+async function cachedPhoto(id){
+  try{const db=await mediaDb();return await new Promise(resolve=>{const r=db.transaction('photos').objectStore('photos').get(DEVICE_KEY+id);r.onsuccess=()=>resolve(r.result?.data||'');r.onerror=()=>resolve('')})}catch(_){return ''}
+}
+async function cachePhoto(id,data){
+  if(!id||!data)return;
+  cloudPhotos.set(id,data);
+  try{const db=await mediaDb();await new Promise((resolve,reject)=>{
+    const tx=db.transaction('photos','readwrite'),store=tx.objectStore('photos');store.put({data,at:Date.now()},DEVICE_KEY+id);
+    const all=store.getAllKeys();all.onsuccess=()=>{const keys=all.result.filter(k=>String(k).startsWith(DEVICE_KEY));for(const key of keys.slice(0,Math.max(0,keys.length-80)))if(key!==DEVICE_KEY+id)store.delete(key)};
+    tx.oncomplete=resolve;tx.onabort=reject;
+  })}catch(_){}
+}
+function barcodePhotoRef(p,code){
+  return p?.photoRefs?.[code]||B.find(b=>b.p===p?.id&&b.code===code&&b.photo_file_id)?.photo_file_id||'';
+}
+async function loadAddPhoto(){
+  const form=S.f,p=P.find(p=>p.id===S.pid);if(!form||form.photo||!form.code)return;
+  const id=barcodePhotoRef(p,form.code);if(!id)return;
+  form.photo_file_id=id;
+  let photo=cloudPhotos.get(id)||await cachedPhoto(id);
+  if(!photo&&typeof CLOUD!=='undefined'&&CLOUD&&cloudOnline){
+    try{if(!photoJobs.has(id))photoJobs.set(id,cloudRequest({action:'photo',file_id:id}).then(r=>r.photo).finally(()=>photoJobs.delete(id)));photo=await photoJobs.get(id);await cachePhoto(id,photo)}catch(_){}
+  }
+  if(photo&&S.f===form&&S.mode==='add'&&!$('#ov').hidden&&!form.photo){form.photo=photo;drawOp()}
+}
+// Three independent reads at a time; warm thumbnails use IndexedDB without a server trip.
+async function cloudLoadPhotos(){
+  if(!CLOUD||!S.tp)return;
+  const pin=cloudPin,pid=S.pid,files=[...new Set(S.tp.map(t=>t.photo_file_id).filter(Boolean))];
+  let next=0;
+  const load=async id=>{
+    try{
+      let photo=cloudPhotos.get(id)||await cachedPhoto(id);
+      if(!photo&&cloudOnline){
+        if(!photoJobs.has(id))photoJobs.set(id,cloudRequest({action:'photo',file_id:id}).then(r=>r.photo).finally(()=>photoJobs.delete(id)));
+        photo=await photoJobs.get(id);
+      }
+      if(!photo||pin!==cloudPin)return;await cachePhoto(id,photo);
+      B.filter(b=>b.photo_file_id===id).forEach(b=>b.photo=photo);
+      if(S.pid!==pid||S.mode!=='take')return;
+      S.tp?.filter(t=>t.photo_file_id===id).forEach(t=>t.photo=photo);
+      if(!$('#ov').hidden)drawOp();
+    }catch(_){}
+  };
+  await Promise.all(Array.from({length:Math.min(3,files.length)},async()=>{while(next<files.length)await load(files[next++])}));
+}
+function rememberBarcode(p,code,s){
+  try{
+    let list=JSON.parse(localStorage.getItem(DEVICE_KEY+'recent-codes')||'[]');
+    list=[{pid:p.id,code,s,at:Date.now()},...list.filter(x=>x.code!==code)].slice(0,12);
+    localStorage.setItem(DEVICE_KEY+'recent-codes',JSON.stringify(list));
+  }catch(_){}
+}
+function recentBarcodeItems(){
+  let list=[];try{list=JSON.parse(localStorage.getItem(DEVICE_KEY+'recent-codes')||'[]')}catch(_){}
+  const entries=[...list,...B.slice().sort((a,b)=>(b.k||'').localeCompare(a.k||'')).filter(b=>b.code).map(b=>({pid:b.p,code:b.code,s:b.s}))];
+  for(const p of P)for(const [code,s] of Object.entries(p.barcodeSizes||{}))entries.push({pid:p.id,code,s});
+  const seen=new Set();return entries.filter(item=>{const p=P.find(p=>p.id===item.pid);if(!p||S.pid&&p.id!==S.pid||seen.has(item.code))return false;seen.add(item.code);return true}).slice(0,8);
+}
+function recentBarcodeHtml(){
+  const items=recentBarcodeItems();if(!items.length)return '';
+  return '<div class="recent-codes"><div class="lbl">Недавні</div>'+items.map(item=>{const p=P.find(p=>p.id===item.pid);return `<button data-recent-code="${esc(item.code)}"><b>${esc(p.names?.[item.code]||p.n)}</b><span>${size(item.s,p.u)} · ${esc(item.code)}</span></button>`}).join('')+'</div>';
+}
+function batchEditor(id){
+  const b=B.find(b=>b.id===id),p=P.find(p=>p.id===b?.p);if(!b||!p)return;
+  stopCam();S={pid:p.id,mode:'batch-edit',editBatchId:id};
+  show(`<form id="batchForm"><div class="top3"><h2>Редагувати пачку</h2><button type="button" data-batch-back aria-label="Назад">✕</button></div>
+    <p>${esc(b.name||p.n)} · ${size(b.s,p.u)}</p>${b.q>1?`<p class="sub">Партія: ${nf(b.q)} ${pk(b.q)}. Зміни стосуються всієї партії.</p>`:''}
+    <label class="editor-field">Придатне до<input id="batchExpiry" type="date" required value="${b.x}"></label>
+    <label class="editor-field">Де лежить<input id="batchLocation" maxlength="100" list="batchPlaces" value="${esc(b.loc||'')}"><datalist id="batchPlaces">${LOCS.map(loc=>`<option value="${esc(loc)}">`).join('')}</datalist></label>
+    <button class="pri" type="submit" style="width:100%">Зберегти</button></form>`);
+  $('#batchForm').onsubmit=async e=>{
+    e.preventDefault();const expiry=$('#batchExpiry').value,loc=$('#batchLocation').value.trim();if(!expiry)return;
+    const current=B.find(item=>item.id===id);if(!current){toast('Цієї партії вже немає.');return}
+    if(CLOUD)await cloudMutate({action:'edit',product_id:p.id,batch_id:id,packs_qty:current.q,pack_weight_kg:current.s,added_date:current.k,expiry_date:expiry,is_estimated_expiry:false,storage_location:loc},{message:'Пачку оновлено',enqueued(){clearMobileDraft();opSheet(p.id,'take')}});
+    else{Object.assign(current,{x:expiry,loc,estimated:false});clearMobileDraft();render();opSheet(p.id,'take')}
+  };
+  saveMobileDraft();
+}
+const originalDrawOp=drawOp;
+drawOp=function(){
+  originalDrawOp();
+  if(S.mode==='add'&&S.f){
+    if(S.f.photoBusy)$('#sheet').insertAdjacentHTML('beforeend','<p class="scan-status" role="status">Стискаю фото…</p>');
+    if(S.f.code&&!S.f.photo&&!S.f.photoBusy)loadAddPhoto();
+  }
+  saveMobileDraft();
+};
+const originalCloudPaint=cloudPaint;
+cloudPaint=function(...args){originalCloudPaint(...args);restoreMobileDraft()};
+
+// Expiry is attached to a batch, independently of its stock norm or category.
+function render(){
+  persistState();const q=$('#q').value.trim().toLocaleLowerCase('uk'),expired=filterSt.has('expired');
+  let items=P.map(p=>({p,i:info(p)}));items.forEach(item=>item.i.expired=item.i.bs.some(b=>daysTo(b.x)<0));
+  const count=Object.fromEntries(['low','excess','expired'].map(k=>[k,items.filter(item=>item.i[k]).length]));
+  const cats=CATS.filter(c=>items.some(item=>item.p.cat===c&&(!expired||item.i.expired)));
+  $('#chips').innerHTML=`<button data-f="all" aria-pressed="${!filterCat&&!filterSt.size}">Усі</button>`+
+    cats.map(c=>`<button data-fc="${esc(c)}" aria-pressed="${filterCat===c}">${esc(c)}</button>`).join('')+
+    '<span class="sep"></span>'+[['low','Закінчується'],['excess','Зайве'],['expired','Прострочене']].map(([k,t])=>`<button data-fs2="${k}" aria-pressed="${filterSt.has(k)}">${t}<b>${count[k]}</b></button>`).join('');
+  items=items.filter(({p,i})=>(!q||p.n.toLocaleLowerCase('uk').includes(q))&&(!filterCat||p.cat===filterCat)&&[...filterSt].every(k=>i[k]));
+  items.sort((a,b)=>a.p.n.localeCompare(b.p.n,'uk'));
+  $('#list').innerHTML=items.map(({p,i})=>{
+    const expiredPacks=i.bs.filter(b=>daysTo(b.x)<0).reduce((sum,b)=>sum+b.q,0),slots=Math.max(p.normP,i.n);
+    const pills=Array.from({length:slots},(_,k)=>`<span class="pl ${k>=i.n?'e':k>=p.normP?'x':''} ${k<expiredPacks?'expired-pill':''}"></span>`).join('');
+    const months=i.total/(p.use*p.people),sub=!i.total?'немає в коморі':p.use===0?'Витрату не задано':`~${String(+months.toFixed(1)).replace('.',',')} міс. / ${p.people} ос.`;
+    return `<article class="card ${i.expired?'has-expired':''}"><div class="cl"><div class="ch"><span class="ico">${productEmoji(p)}</span><div class="chm"><div class="chr"><div class="nm"><button class="name-edit" data-edit-product="${p.id}" aria-label="Редагувати продукт ${esc(p.n)}">${esc(p.n)}<span aria-hidden="true">✎</span></button></div><div class="sup">${sub}</div></div>${i.locs.length?`<div class="loc">${i.locs.map(esc).join(' · ')}</div>`:''}</div></div><div class="pills">${pills}</div></div><div class="qb"><button class="qa" data-op="add|${p.id}" aria-label="Додати"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button><button class="qt" data-op="take|${p.id}" aria-label="Взяти"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12h14"/></svg></button></div></article>`;
+  }).join('')||'<div class="empty">Нічого не знайдено</div>';
+}
+const originalDrawTake=drawTake;
+drawTake=function(p,i){
+  originalDrawTake(p,i);
+  document.querySelectorAll('.pc[data-tk]').forEach(card=>{
+    const tile=S.tp[Number(card.dataset.tk)],expired=daysTo(tile.x)<0;
+    card.classList.toggle('expired',expired);card.tabIndex=0;card.setAttribute('role','button');
+    card.setAttribute('aria-label',`${tile.name||p.n}, ${size(tile.s,p.u)}, ${expired?'прострочено, ':''}${tile.x}${tile.loc?', '+tile.loc:''}`);
+    card.title='Утримуйте або натисніть правою кнопкою для редагування';
+    if(expired)card.insertAdjacentHTML('beforeend','<span class="expired-badge">Прострочено</span>');
+  });
+};
+let holdTimer,holdStart,suppressTakeUntil=0;
+function cancelHold(){clearTimeout(holdTimer);holdTimer=null}
+document.addEventListener('pointerdown',e=>{
+  const card=e.target.closest('.pc[data-tk]');if(!card||e.target.closest('button')||e.button!==0)return;
+  const tile=S.tp?.[Number(card.dataset.tk)];if(!tile?.id||tile.done)return;
+  holdStart={x:e.clientX,y:e.clientY};cancelHold();holdTimer=setTimeout(()=>{suppressTakeUntil=Date.now()+1200;batchEditor(tile.id)},550);
+});
+document.addEventListener('pointermove',e=>{if(holdStart&&Math.hypot(e.clientX-holdStart.x,e.clientY-holdStart.y)>10)cancelHold()},{passive:true});
+for(const name of ['pointerup','pointercancel','scroll'])document.addEventListener(name,cancelHold,{passive:true,capture:true});
+document.addEventListener('contextmenu',e=>{
+  const card=e.target.closest('.pc[data-tk]');if(!card)return;e.preventDefault();cancelHold();const tile=S.tp?.[Number(card.dataset.tk)];if(tile?.id&&!tile.done){suppressTakeUntil=Date.now()+1200;batchEditor(tile.id)}
+});
+document.addEventListener('click',e=>{
+  const card=e.target.closest('.pc[data-tk]');
+  if(card&&Date.now()<suppressTakeUntil){e.preventDefault();e.stopImmediatePropagation();return}
+  const recent=e.target.closest('[data-recent-code]');
+  if(recent){e.preventDefault();e.stopImmediatePropagation();lookup(recent.dataset.recentCode);return}
+  if(e.target.closest('[data-batch-back]')){clearMobileDraft();opSheet(S.pid,'take');return}
+  saveMobileDraft();
+},true);
+document.addEventListener('keydown',e=>{
+  const card=e.target.closest('.pc[data-tk]');if(!card||e.target.closest('button'))return;
+  if(e.key==='F10'&&e.shiftKey||e.key.toLowerCase()==='e'){e.preventDefault();batchEditor(S.tp[Number(card.dataset.tk)].id)}
+  else if(e.key==='Enter'||e.key===' '){e.preventDefault();card.click()}
+});
+for(const name of ['input','change'])document.addEventListener(name,()=>saveMobileDraft());
+window.addEventListener('pagehide',()=>saveMobileDraft());
+document.addEventListener('visibilitychange',()=>{if(document.hidden)saveMobileDraft()});
 
 initLocalState();

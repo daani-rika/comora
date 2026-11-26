@@ -376,3 +376,8 @@ body{font-family:system-ui,-apple-system,"Segoe UI","Noto Color Emoji",sans-seri
 .catalog-error{color:var(--red);font-size:.85rem;min-height:1em}.catalog-norms{width:100%;margin-top:8px}
 /* Keep undo reachable without covering the active form or package cards. */
 body:has(#ov:not([hidden])) #toast{top:12px;bottom:auto}
+.recent-codes{display:grid;gap:6px;margin-top:16px}.recent-codes button{text-align:left;display:grid;gap:4px;padding:10px 12px;min-height:56px}.recent-codes button span{font-size:.8rem;color:var(--mut)}
+.has-expired{border-color:var(--red)}.expired-pill{outline:2px solid var(--red);outline-offset:-2px;background-image:repeating-linear-gradient(135deg,transparent 0 4px,#ffffff99 4px 6px)!important}
+.pc.expired{box-shadow:inset 0 0 0 3px #d32f2f;border:2px solid #d32f2f}.pc.expired .pm span{color:#fff;background:#a71c1c;border-radius:3px;padding:1px 4px}
+.expired-badge{position:absolute;bottom:72px;left:6px;right:6px;font-size:.65rem;text-align:center;font-weight:750;background:#a71c1c;color:#fff;border-radius:3px;padding:3px}
+.pc{touch-action:pan-y;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}.pc:focus-visible{outline:3px solid var(--green);outline-offset:2px}
