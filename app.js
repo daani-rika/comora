@@ -139,7 +139,7 @@ function ean(c){if(!/^\d{13}$/.test(c))return null;const d=[...c].map(Number);le
 const BAR='<svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2"><path d="M4 5v14M8 5v14M11 5v14M15 5v14M18 5v14M21 5v14"/></svg>';
 function drawTake(p,i){
   p.ph=p.ph||{};
-  if(!S.tp)S.tp=i.bs.flatMap(b=>Array.from({length:Math.ceil(b.q)},()=>({id:b.id,photo_file_id:b.photo_file_id,s:b.s,x:b.x,loc:b.loc||'',k:b.k,photo:b.photo,code:b.code||p.codes[b.s],name:b.name,done:0})));
+  if(!S.tp)S.tp=i.bs.flatMap(b=>Array.from({length:Math.ceil(b.q)},()=>({id:b.id,photo_file_id:b.photo_file_id,s:b.s,x:b.x,loc:b.loc||'',k:b.k,photo:b.photo,code:b.code||'',name:b.name,done:0})));
   const cards=S.tp.map((t,k)=>{
     const ph=t.photo||p.ph[t.s],g=GR[p.id]||['#6b7f77','#33403b'],old=daysTo(t.x)<=30;
     return `<div class="pc ${t.done?'done':''}" data-tk="${k}" style="${ph?`background-image:url('${ph}')`:`background:linear-gradient(160deg,${g[0]},${g[1]})`}">
@@ -152,7 +152,7 @@ function drawTake(p,i){
   $('#sheet').className='sheet take';
 }
 function bcSheet(k){
-  const p=P.find(p=>p.id===S.pid),t=S.tp[k],c=t.code||p.codes[t.s],e=c&&ean(c);
+  const p=P.find(p=>p.id===S.pid),t=S.tp[k],c=t.code||'',e=c&&ean(c);
   show(`<div class="top3"><h2>Штрих-код</h2><div class="ib"><button data-back aria-label="Назад">✕</button></div></div>
   <p class="sub">${esc(t.name||pname(p,t.s))} · ${size(t.s,p.u)}</p>
   ${e?`<div style="background:#fff;padding:12px;border-radius:6px"><svg viewBox="0 0 95 50" preserveAspectRatio="none" style="width:100%;height:90px;display:block"><path fill="#000" d="${[...e].map((v,n)=>v==='1'?`M${n} 0h1v50h-1z`:'').join('')}"/></svg><div class="bcn">${c}</div></div>`:`${c?`<div class="bcn">${esc(c)}</div>`:'<p class="sub">Штрих-коду ще немає.</p>'}`}
@@ -693,6 +693,24 @@ function optimisticFields(fields){
     const b=B.find(b=>b.id===fields.batch_id);if(b)b.code=fields.barcode;
   }
 }
+// Resolve legacy batches without photo IDs by exact, nonempty barcode only.
+// Never infer a barcode from product or weight: several brands may share a size.
+function shareBarcodePhotos(products,batches,tiles=[],pid){
+  const refs=new Map(),images=new Map(),key=(id,code)=>JSON.stringify([String(id),String(code)]);
+  products.forEach(p=>{p.photoRefs={...p.photoRefs};Object.entries(p.photoRefs).forEach(([code,id])=>{if(code&&id)refs.set(key(p.id,code),id)})});
+  batches.forEach(b=>{if(b.code&&b.photo_file_id&&!refs.has(key(b.p,b.code)))refs.set(key(b.p,b.code),b.photo_file_id);if(b.photo&&b.photo_file_id)images.set(b.photo_file_id,b.photo)});
+  products.forEach(p=>{batches.filter(b=>b.p===p.id&&b.code).forEach(b=>{const id=refs.get(key(p.id,b.code));if(id)p.photoRefs[b.code]=id})});
+  const assign=(item,productId,code)=>{
+    if(!code)return;
+    const id=refs.get(key(productId,code));if(!id)return;
+    const previous=item.photo_file_id;
+    if(!previous&&item.photo)return; // An optimistic upload has no Drive ID yet.
+    item.photo_file_id=id;item.photo=cloudPhotos.get(id)||images.get(id)||(previous===id?item.photo:'')||'';
+  };
+  batches.forEach(b=>assign(b,b.p,b.code));
+  const byId=new Map(batches.map(b=>[b.id,b]));
+  tiles.forEach(t=>{const b=byId.get(t.id),code=b?b.code:t.code;if(b)t.code=b.code||'';assign(t,b?.p??pid,code)});
+}
 function projectQueue(){
   if(!cloudLast)return;
   P=cloudLast.frontend.P.map(p=>({...p,codes:{...p.codes},barcodeSizes:{...p.barcodeSizes}}));
@@ -712,6 +730,7 @@ function projectQueue(){
   LOCS=[...new Set([...(cloudLast.frontend.LOCS||[]),...B.map(b=>b.loc)].filter(Boolean))];
   P.forEach(p=>{p.lastLoc=B.filter(b=>b.p===p.id&&b.loc).sort((a,b)=>(b.k||'').localeCompare(a.k||''))[0]?.loc||''});
   P.forEach(p=>{p.photoRefs={...p.photoRefs};B.filter(b=>b.p===p.id&&b.code&&b.photo_file_id).forEach(b=>{if(!p.photoRefs[b.code])p.photoRefs[b.code]=b.photo_file_id});});
+  shareBarcodePhotos(P,B);
 }
 async function cloudRequest(fields,pin=cloudPin){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),35000);
@@ -1187,6 +1206,7 @@ function render(){
 }
 const originalDrawTake=drawTake;
 drawTake=function(p,i){
+  shareBarcodePhotos(P,B,S.tp||[],p.id);
   originalDrawTake(p,i);
   document.querySelectorAll('.pc[data-tk]').forEach(card=>{
     const tile=S.tp[Number(card.dataset.tk)],expired=daysTo(tile.x)<0;
