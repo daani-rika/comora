@@ -141,7 +141,7 @@ function drawTake(p,i){
   p.ph=p.ph||{};
   if(!S.tp)S.tp=i.bs.flatMap(b=>Array.from({length:Math.ceil(b.q)},()=>({id:b.id,photo_file_id:b.photo_file_id,s:b.s,x:b.x,loc:b.loc||'',k:b.k,photo:b.photo,code:b.code||'',name:b.name,done:0})));
   const cards=S.tp.map((t,k)=>{
-    const ph=t.photo||p.ph[t.s],g=GR[p.id]||['#6b7f77','#33403b'],old=daysTo(t.x)<=30;
+    const ph=t.photo,g=GR[p.id]||['#6b7f77','#33403b'],old=daysTo(t.x)<=30;
     return `<div class="pc ${t.done?'done':''}" data-tk="${k}" style="${ph?`background-image:url('${ph}')`:`background:linear-gradient(160deg,${g[0]},${g[1]})`}">
     <button class="bc" data-bc="${k}" aria-label="Штрих-код">${BAR}</button>${t.loc?`<span class="lc">${esc(t.loc)}</span>`:''}
     <div class="pt"><b class="pn">${esc(t.name||pname(p,t.s))}</b><div class="pm"><b>${size(t.s,p.u)}</b><span class="${old?'old':''}">${my(t.x)}</span></div></div>
@@ -166,7 +166,7 @@ IC.cal='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width=
 const esc=t=>String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 function drawAdd(p,i){
   p.ph=p.ph||{};
-  const f=S.f,card=S.stage==='card'&&f,tot=i.packs+(card?f.n:0),ph=card?(f.photo||p.ph[f.s]):null;
+  const f=S.f,card=S.stage==='card'&&f,tot=i.packs+(card?f.n:0),ph=card?f.photo:null;
   const cam=`<label class="ibtn" aria-label="Сфотографувати пачку">${ph?`<img src="${ph}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:5px">`:IC.cam}<input type="file" id="ph0" accept="image/*" capture="environment" hidden></label>`;
   const head=`<div class="top3"><h2 class="th"><span style="color:var(--green)">Додати</span> • ${esc(p.n)} • <b>${card?`${i.packs} → ${tot}`:i.packs}</b>${card?'':` <span class="sub">${pk(tot)}</span>`}</h2><div class="ib">${card?cam:''}<button data-close aria-label="Закрити">✕</button></div></div>`;
   if(!card){
@@ -683,7 +683,11 @@ function optimisticFields(fields){
   }else if(fields.action==='take'){
     const b=B.find(b=>b.id===fields.batch_id);if(b)b.q=Math.max(0,b.q-fields.packs_qty);
   }else if(fields.action==='edit'){
-    const b=B.find(b=>b.id===fields.batch_id);if(b)Object.assign(b,{q:fields.packs_qty,s:fields.pack_weight_kg,k:fields.added_date,x:fields.expiry_date,estimated:fields.is_estimated_expiry,loc:fields.storage_location??b.loc});
+    const b=B.find(b=>b.id===fields.batch_id);if(b){
+      Object.assign(b,{q:fields.packs_qty,s:fields.pack_weight_kg,k:fields.added_date,x:fields.expiry_date,estimated:fields.is_estimated_expiry,loc:fields.storage_location??b.loc,name:fields.pack_name??b.name,code:fields.barcode??b.code});
+      if(fields.photo_base64){b.photo=fields.photo_base64;b.photo_file_id='';b.own_photo_file_id=''}
+      if(fields.remove_photo){b.photo='';b.photo_file_id='';b.own_photo_file_id=''}
+    }
   }else if(fields.action==='product_settings'){
     const product=p||{id:fields.product_id,codes:{},barcodeSizes:{},names:{}};
     Object.assign(product,{cat:fields.category??p?.cat??'',n:fields.name??p?.n,e:fields.emoji??p?.e??'📦',u:({kg:'кг',l:'л',pcs:'шт.'})[fields.unit]||p?.u||'кг',g:fields.monthly_usage_kg*1000,people:fields.people_count,months:fields.target_months,pack:fields.default_pack_weight*1000,life:fields.default_shelf_life_days,ov:fields.norm_packs_override});
@@ -696,25 +700,31 @@ function optimisticFields(fields){
 // Resolve legacy batches without photo IDs by exact, nonempty barcode only.
 // Never infer a barcode from product or weight: several brands may share a size.
 function shareBarcodePhotos(products,batches,tiles=[],pid){
-  const refs=new Map(),images=new Map(),key=(id,code)=>JSON.stringify([String(id),String(code)]);
-  products.forEach(p=>{p.photoRefs={...p.photoRefs};Object.entries(p.photoRefs).forEach(([code,id])=>{if(code&&id)refs.set(key(p.id,code),id)})});
-  batches.forEach(b=>{if(b.code&&b.photo_file_id&&!refs.has(key(b.p,b.code)))refs.set(key(b.p,b.code),b.photo_file_id);if(b.photo&&b.photo_file_id)images.set(b.photo_file_id,b.photo)});
-  products.forEach(p=>{batches.filter(b=>b.p===p.id&&b.code).forEach(b=>{const id=refs.get(key(p.id,b.code));if(id)p.photoRefs[b.code]=id})});
-  const assign=(item,productId,code)=>{
-    if(!code)return;
-    const id=refs.get(key(productId,code));if(!id)return;
+  const candidates=new Map(),refs=new Map(),images=new Map(),key=(id,code)=>JSON.stringify([String(id),String(code)]);
+  const own=b=>b.own_photo_file_id===undefined?b.photo_file_id:b.own_photo_file_id;
+  const add=(pid,code,id)=>{if(!code||!id)return;const k=key(pid,code);if(!candidates.has(k))candidates.set(k,new Set());candidates.get(k).add(id)};
+  products.forEach(p=>Object.entries(p.photoRefs||{}).forEach(([code,id])=>add(p.id,code,id)));
+  batches.forEach(b=>{add(b.p,b.code,own(b));if(b.photo&&b.photo_file_id)images.set(b.photo_file_id,b.photo)});
+  candidates.forEach((ids,k)=>{if(ids.size===1)refs.set(k,[...ids][0])});
+  products.forEach(p=>{const result={};candidates.forEach((_,k)=>{const [pid,code]=JSON.parse(k);if(pid===String(p.id)&&refs.has(k))result[code]=refs.get(k)});p.photoRefs=result});
+  const assign=(item,id)=>{
+    if(!id)return;
     const previous=item.photo_file_id;
     if(!previous&&item.photo)return; // An optimistic upload has no Drive ID yet.
     item.photo_file_id=id;item.photo=cloudPhotos.get(id)||images.get(id)||(previous===id?item.photo:'')||'';
   };
-  batches.forEach(b=>assign(b,b.p,b.code));
+  batches.forEach(b=>assign(b,own(b)||(b.code?refs.get(key(b.p,b.code)):'')));
   const byId=new Map(batches.map(b=>[b.id,b]));
-  tiles.forEach(t=>{const b=byId.get(t.id),code=b?b.code:t.code;if(b)t.code=b.code||'';assign(t,b?.p??pid,code)});
+  tiles.forEach(t=>{const b=byId.get(t.id);if(b)t.code=b.code||'';assign(t,b?b.photo_file_id:t.photo_file_id||(t.code?refs.get(key(pid,t.code)):''))});
 }
 function projectQueue(){
   if(!cloudLast)return;
   P=cloudLast.frontend.P.map(p=>({...p,codes:{...p.codes},barcodeSizes:{...p.barcodeSizes}}));
-  B=cloudLast.frontend.B.map(b=>({...b,photo:cloudPhotos.get(b.photo_file_id)||''}));
+  const rawBatches=new Map((cloudLast.state?.Batches||[]).map(b=>[b.batch_id,b]));
+  B=cloudLast.frontend.B.map(b=>{
+    const raw=rawBatches.get(b.id),own=raw?raw.photo_file_id||'':b.photo_file_id||'';
+    return {...b,code:raw?String(raw.barcode||''):b.code||'',own_photo_file_id:own,photo_file_id:own,photo:cloudPhotos.get(own)||''};
+  });
   cloudQueue.forEach(entry=>{
     const f=entry.request;
     if(f.action==='undo'){
@@ -926,7 +936,7 @@ async function cloudAdd(){
   if(form.photoBusy){toast('Фото ще стискається. Зачекайте мить.');return}
   if(S.addLoc){const loc=(S.locDraft||'').trim();if(!loc){$('#nloc').focus();return}form.loc=loc;}
   if((form.loc||'')&&!cloudSupportsV5()){toast('Оновіть Apps Script для збереження місця.');return}
-  const batchId=form.batch_id||crypto.randomUUID(),code=form.code||p.codes[form.s]||'',photoId=form.photoChanged?'':form.photo_file_id||(typeof barcodePhotoRef==='function'?barcodePhotoRef(p,code):''),fields={action:'add',product_id:p.id,batch_id:batchId,packs_qty:form.n,pack_weight_kg:form.s,added_date:off(0),barcode:code,save_barcode:true,storage_location:form.loc||'',is_estimated_expiry:!!form.estimated,pack_name:form.name,expiry_date:form.x||undefined,photo_file_id:photoId||undefined,photo_base64:photoId?undefined:form.photo||undefined};
+  const batchId=form.batch_id||crypto.randomUUID(),code=form.code||'',photoId=form.photoChanged?'':form.photo_file_id||(typeof barcodePhotoRef==='function'?barcodePhotoRef(p,code):''),fields={action:'add',product_id:p.id,batch_id:batchId,packs_qty:form.n,pack_weight_kg:form.s,added_date:off(0),barcode:code,save_barcode:true,storage_location:form.loc||'',is_estimated_expiry:!!form.estimated,pack_name:form.name,expiry_date:form.x||undefined,photo_file_id:photoId||undefined,photo_base64:photoId?undefined:form.photo||undefined};
   form.batch_id=batchId;form.submitting=true;if(typeof saveMobileDraft==='function')saveMobileDraft();
   if(code&&typeof rememberBarcode==='function')rememberBarcode(p,code,form.s);
   const accepted=await cloudMutate(fields,{message:`Додано ${form.n} ${pk(form.n)} · ${p.n}`,enqueued(){if(S.f===form)close()}});
@@ -1066,7 +1076,7 @@ function saveMobileDraft(extra={}){
       draft.catalog={code:catalogCurrent?.code||$('#sheet .bcn')?.textContent||'',result:catalogCurrent,context:catalogContext,
         values:Object.fromEntries(['catalogProduct','catalogName','catalogWeight','catalogUnit'].map(id=>[id,$('#'+id)?.value||'']))};
     }
-    if(S.mode==='batch-edit')draft.edit={id:S.editBatchId,x:$('#batchExpiry')?.value,loc:$('#batchLocation')?.value};
+    if(S.mode==='batch-edit')draft.edit={id:S.editBatchId,photo:S.editPhoto||'',removePhoto:!!S.removeBatchPhoto,replaceShared:!!$('#batchReplaceShared')?.checked,values:Object.fromEntries(['batchName','batchQty','batchWeight','batchAdded','batchExpiry','batchLocation','batchBarcode'].map(id=>[id,$('#'+id)?.value||'']))};
     localStorage.setItem(DEVICE_KEY+'draft',JSON.stringify(draft));
   }catch(_){if(!draftWarning){draftWarning=true;toast('Не вдалося зберегти чернетку на пристрої.')}}
 }
@@ -1076,7 +1086,16 @@ function restoreMobileDraft(){
   if(draft?.version!==1||!P.some(p=>String(p.id)===String(draft.pid)))return;
   if(draft.f?.batch_id&&(B.some(b=>b.id===draft.f.batch_id)||typeof cloudQueue!=='undefined'&&cloudQueue.some(entry=>entry.request.batch_id===draft.f.batch_id))){clearMobileDraft();return}
   if(draft.mode==='batch-edit'){
-    if(B.some(b=>b.id===draft.edit?.id)){batchEditor(draft.edit.id);if(draft.edit.x)$('#batchExpiry').value=draft.edit.x;if(draft.edit.loc!==undefined)$('#batchLocation').value=draft.edit.loc;saveMobileDraft()}
+    if(B.some(b=>b.id===draft.edit?.id)){
+      batchEditor(draft.edit.id);for(const [id,value] of Object.entries(draft.edit.values||{})){if($('#'+id))$('#'+id).value=value}
+      if(draft.edit.x)$('#batchExpiry').value=draft.edit.x;if(draft.edit.loc!==undefined)$('#batchLocation').value=draft.edit.loc;
+      $('#batchReplaceShared').checked=!!draft.edit.replaceShared;
+      $('.shared-photo-choice').hidden=!$('#batchBarcode').value.trim();
+      S.editPhoto=draft.edit.photo||'';S.removeBatchPhoto=!!draft.edit.removePhoto;
+      if(S.editPhoto){$('#batchPhotoPreview').src=S.editPhoto;$('#batchPhotoPreview').hidden=false}
+      else if(S.removeBatchPhoto)$('#batchPhotoPreview').hidden=true;
+      saveMobileDraft();
+    }
     return;
   }
   S={pid:resolveProductId(draft.pid),mode:'add',stage:draft.f?'card':'start',f:draft.f};
@@ -1108,7 +1127,9 @@ async function cachePhoto(id,data){
   })}catch(_){}
 }
 function barcodePhotoRef(p,code){
-  return p?.photoRefs?.[code]||B.find(b=>b.p===p?.id&&b.code===code&&b.photo_file_id)?.photo_file_id||'';
+  if(!code)return '';
+  const ids=new Set([p?.photoRefs?.[code],...B.filter(b=>b.p===p?.id&&b.code===code).map(b=>b.own_photo_file_id===undefined?b.photo_file_id:b.own_photo_file_id)].filter(Boolean));
+  return ids.size===1?[...ids][0]:'';
 }
 async function loadAddPhoto(){
   const form=S.f,p=P.find(p=>p.id===S.pid);if(!form||form.photo||!form.code)return;
@@ -1160,17 +1181,44 @@ function recentBarcodeHtml(){
 }
 function batchEditor(id){
   const b=B.find(b=>b.id===id),p=P.find(p=>p.id===b?.p);if(!b||!p)return;
-  stopCam();S={pid:p.id,mode:'batch-edit',editBatchId:id};
+  stopCam();S={pid:p.id,mode:'batch-edit',editBatchId:id,editPhoto:'',removeBatchPhoto:false};
   show(`<form id="batchForm"><div class="top3"><h2>Редагувати пачку</h2><button type="button" data-batch-back aria-label="Назад">✕</button></div>
-    <p>${esc(b.name||p.n)} · ${size(b.s,p.u)}</p>${b.q>1?`<p class="sub">Партія: ${nf(b.q)} ${pk(b.q)}. Зміни стосуються всієї партії.</p>`:''}
-    <label class="editor-field">Придатне до<input id="batchExpiry" type="date" required value="${b.x}"></label>
+    <p>${esc(p.n)}</p>${b.q>1?`<p class="sub">Партія: ${nf(b.q)} ${pk(b.q)}. Зміни стосуються всієї партії.</p>`:''}
+    <label class="editor-field">Назва на упаковці<input id="batchName" maxlength="200" required value="${esc(b.name||p.n)}"></label>
+    <div class="two"><label class="editor-field">Кількість пачок<input id="batchQty" type="number" min="0.000001" step="any" inputmode="decimal" required value="${b.q}"></label>
+    <label class="editor-field">Пачка, ${esc(p.u)}<input id="batchWeight" type="number" min="0.000001" step="any" inputmode="decimal" required value="${b.s}"></label></div>
+    <div class="two"><label class="editor-field">Дата додавання<input id="batchAdded" type="date" required value="${b.k}"></label>
+    <label class="editor-field">Придатне до<input id="batchExpiry" type="date" required value="${b.x}"></label></div>
     <label class="editor-field">Де лежить<input id="batchLocation" maxlength="100" list="batchPlaces" value="${esc(b.loc||'')}"><datalist id="batchPlaces">${LOCS.map(loc=>`<option value="${esc(loc)}">`).join('')}</datalist></label>
+    <label class="editor-field">Штрих-код<input id="batchBarcode" maxlength="80" value="${esc(b.code||'')}" placeholder="Не вказано"></label><button id="batchClearCode" type="button">Прибрати штрих-код</button>
+    <div class="batch-photo-tools"><label class="photo-choice">Камера<input id="batchPhoto" type="file" accept="image/*" capture="environment" hidden></label><label class="photo-choice">Вибрати фото<input id="batchPhotoGallery" type="file" accept="image/*" hidden></label></div>
+    <img id="batchPhotoPreview" class="batch-photo-preview" ${b.photo?`src="${b.photo}"`:'hidden'} alt="Фото пачки"><p id="batchPhotoStatus" role="status" class="scan-status"></p>
+    <label class="shared-photo-choice" ${b.code?'':'hidden'}><input id="batchReplaceShared" type="checkbox">Замінити фото в усіх пачках цього штрих-коду</label>
     <button class="pri" type="submit" style="width:100%">Зберегти</button></form>`);
+  $('#batchClearCode').onclick=()=>{$('#batchBarcode').value='';$('#batchReplaceShared').checked=false;$('.shared-photo-choice').hidden=true;saveMobileDraft()};
+  $('#batchBarcode').oninput=()=>{$('.shared-photo-choice').hidden=!$('#batchBarcode').value.trim()};
+  const form=$('#batchForm');
+  const attach=async file=>{
+    if(!file)return;if(file.size>25*1024*1024){toast('Фото завелике. Виберіть файл до 25 МБ.');return}
+    const session=S;session.photoBusy=true;$('#batchPhotoStatus').textContent='Стискаю фото…';saveMobileDraft();let bitmap,url;
+    try{
+      if(typeof createImageBitmap==='function'){try{bitmap=await createImageBitmap(file,{resizeWidth:400,resizeQuality:'medium',imageOrientation:'from-image'})}catch(_){}}
+      if(!bitmap){url=URL.createObjectURL(file);bitmap=new Image();bitmap.src=url;await bitmap.decode()}
+      const photo=compactPhoto(bitmap);if(S!==session||$('#batchForm')!==form)return;
+      S.editPhoto=photo;S.removeBatchPhoto=false;$('#batchPhotoPreview').src=photo;$('#batchPhotoPreview').hidden=false;$('#batchPhotoStatus').textContent='';saveMobileDraft();
+    }catch(_){if(S===session)$('#batchPhotoStatus').textContent='Не вдалося відкрити фото.'}
+    finally{session.photoBusy=false;bitmap?.close?.();if(url){bitmap.src='';URL.revokeObjectURL(url)}}
+  };
+  $('#batchPhoto').onchange=e=>attach(e.target.files?.[0]);$('#batchPhotoGallery').onchange=e=>attach(e.target.files?.[0]);
   $('#batchForm').onsubmit=async e=>{
-    e.preventDefault();const expiry=$('#batchExpiry').value,loc=$('#batchLocation').value.trim();if(!expiry)return;
+    e.preventDefault();if(S.photoBusy){toast('Фото ще стискається. Зачекайте мить.');return}if(S.submitting)return;
+    const expiry=$('#batchExpiry').value,loc=$('#batchLocation').value.trim(),name=$('#batchName').value.trim(),qty=Number($('#batchQty').value.replace(',','.')),weight=Number($('#batchWeight').value.replace(',','.')),added=$('#batchAdded').value,code=$('#batchBarcode').value.trim();
+    if(!expiry||!added||!name||!(qty>0)||!(weight>0)){toast('Перевірте поля партії.');return}
     const current=B.find(item=>item.id===id);if(!current){toast('Цієї партії вже немає.');return}
-    if(CLOUD)await cloudMutate({action:'edit',product_id:p.id,batch_id:id,packs_qty:current.q,pack_weight_kg:current.s,added_date:current.k,expiry_date:expiry,is_estimated_expiry:false,storage_location:loc},{message:'Пачку оновлено',enqueued(){clearMobileDraft();opSheet(p.id,'take')}});
-    else{Object.assign(current,{x:expiry,loc,estimated:false});clearMobileDraft();render();opSheet(p.id,'take')}
+    if(CLOUD&&S.editPhoto&&code&&!cloudLast?.features?.includes('safe_barcode_photos')){toast('Оновіть Apps Script для заміни фото без перезапису інших пачок.');return}
+    const session=S;session.submitting=true;
+    if(CLOUD){const accepted=await cloudMutate({action:'edit',product_id:p.id,batch_id:id,packs_qty:qty,pack_weight_kg:weight,pack_name:name,added_date:added,expiry_date:expiry,is_estimated_expiry:expiry===current.x?!!current.estimated:false,storage_location:loc,barcode:code,photo_base64:S.editPhoto||undefined,remove_photo:!!S.removeBatchPhoto,replace_barcode_photo:$('#batchReplaceShared').checked},{message:'Пачку оновлено',enqueued(){clearMobileDraft();opSheet(p.id,'take')}});if(!accepted)session.submitting=false;}
+    else{Object.assign(current,{q:qty,s:weight,name,k:added,x:expiry,loc,code,estimated:false,...(S.editPhoto?{photo:S.editPhoto}:{}),...(S.removeBatchPhoto?{photo:''}:{})});clearMobileDraft();render();opSheet(p.id,'take')}
   };
   saveMobileDraft();
 }
